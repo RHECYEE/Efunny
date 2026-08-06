@@ -1,14 +1,14 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<testsuite name="com.rhecyee.efunny.core.schedule.DropScheduleTest" tests="8" skipped="0" failures="0" errors="0" timestamp="2026-08-06T05:16:20" hostname="vm" time="0.048">
+<testsuite name="com.rhecyee.efunny.core.schedule.DropScheduleTest" tests="8" skipped="0" failures="0" errors="0" timestamp="2026-08-06T05:19:58" hostname="vm" time="0.108">
   <properties/>
-  <testcase name="fall back shifts the drop an hour later in UTC()" classname="com.rhecyee.efunny.core.schedule.DropScheduleTest" time="0.006"/>
-  <testcase name="labels the currently displayed drop()" classname="com.rhecyee.efunny.core.schedule.DropScheduleTest" time="0.001"/>
-  <testcase name="fires exactly three drops on every day of the year including both DST days()" classname="com.rhecyee.efunny.core.schedule.DropScheduleTest" time="0.028"/>
-  <testcase name="spring forward shifts the drop an hour earlier in UTC()" classname="com.rhecyee.efunny.core.schedule.DropScheduleTest" time="0.001"/>
-  <testcase name="lists all three drops for the day()" classname="com.rhecyee.efunny.core.schedule.DropScheduleTest" time="0.002"/>
-  <testcase name="picks the next slot later the same day()" classname="com.rhecyee.efunny.core.schedule.DropScheduleTest" time="0.001"/>
+  <testcase name="fall back shifts the drop an hour later in UTC()" classname="com.rhecyee.efunny.core.schedule.DropScheduleTest" time="0.008"/>
+  <testcase name="labels the currently displayed drop()" classname="com.rhecyee.efunny.core.schedule.DropScheduleTest" time="0.002"/>
+  <testcase name="fires exactly three drops on every day of the year including both DST days()" classname="com.rhecyee.efunny.core.schedule.DropScheduleTest" time="0.074"/>
+  <testcase name="spring forward shifts the drop an hour earlier in UTC()" classname="com.rhecyee.efunny.core.schedule.DropScheduleTest" time="0.003"/>
+  <testcase name="lists all three drops for the day()" classname="com.rhecyee.efunny.core.schedule.DropScheduleTest" time="0.003"/>
+  <testcase name="picks the next slot later the same day()" classname="com.rhecyee.efunny.core.schedule.DropScheduleTest" time="0.002"/>
   <testcase name="arizona does not observe DST so its drops never move()" classname="com.rhecyee.efunny.core.schedule.DropScheduleTest" time="0.002"/>
-  <testcase name="rolls over to tomorrow morning after the evening drop()" classname="com.rhecyee.efunny.core.schedule.DropScheduleTest" time="0.001"/>
+  <testcase name="rolls over to tomorrow morning after the evening drop()" classname="com.rhecyee.efunny.core.schedule.DropScheduleTest" time="0.002"/>
   <system-out><![CDATA[]]></system-out>
   <system-err><![CDATA[]]></system-err>
 </testsuite>
