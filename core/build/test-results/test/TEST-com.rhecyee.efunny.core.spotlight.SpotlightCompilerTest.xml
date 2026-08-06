@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.rhecyee.efunny.core.spotlight.SpotlightCompilerTest" tests="8" skipped="0" failures="0" errors="0" timestamp="2026-08-06T04:38:49" hostname="vm" time="0.034">
+  <properties/>
+  <testcase name="degrades gracefully rather than padding when everything is dry()" classname="com.rhecyee.efunny.core.spotlight.SpotlightCompilerTest" time="0.002"/>
+  <testcase name="entries come out ranked best first()" classname="com.rhecyee.efunny.core.spotlight.SpotlightCompilerTest" time="0.003"/>
+  <testcase name="still reaches seven when two sources are unavailable()" classname="com.rhecyee.efunny.core.spotlight.SpotlightCompilerTest" time="0.003"/>
+  <testcase name="collapses the same joke cross-posted to two sources()" classname="com.rhecyee.efunny.core.spotlight.SpotlightCompilerTest" time="0.002"/>
+  <testcase name="disabled sources contribute nothing()" classname="com.rhecyee.efunny.core.spotlight.SpotlightCompilerTest" time="0.002"/>
+  <testcase name="no source takes a second slot until every source has had a first()" classname="com.rhecyee.efunny.core.spotlight.SpotlightCompilerTest" time="0.002"/>
+  <testcase name="excludes posts already shown in earlier drops()" classname="com.rhecyee.efunny.core.spotlight.SpotlightCompilerTest" time="0.003"/>
+  <testcase name="seven healthy sources give exactly one post each()" classname="com.rhecyee.efunny.core.spotlight.SpotlightCompilerTest" time="0.007"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>
