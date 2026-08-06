@@ -7,6 +7,9 @@ import com.rhecyee.efunny.core.model.TimeWindow
 import com.rhecyee.efunny.core.net.Http
 import com.rhecyee.efunny.core.net.HttpFailure
 import com.rhecyee.efunny.core.spotlight.SpotlightSpec
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
@@ -18,11 +21,20 @@ import java.util.Base64
  * Reddit humour subs, standing in for the Facebook groups that no longer have an
  * API.
  *
- * Auth uses the `installed_client` grant, which needs only a client ID and no
- * client secret -- the one OAuth flow that is genuinely safe to run from a
- * distributed APK. `/top?t=day` is a natural fit for the brief: Reddit does the
- * 24-hour trending window server-side, and returns the score and comment count
- * needed to rank within it.
+ * Runs at one of two quality levels, and upgrades itself the moment a client ID
+ * appears:
+ *
+ *  - **Keyless** (default). `/top/.rss?t=day` is public, needs no credentials at
+ *    all, and still gets Reddit to do the 24-hour trending window server-side.
+ *    What it does *not* carry is score or comment count, so these posts rank on
+ *    recency like any other feed and are labelled "Latest".
+ *  - **Authenticated**, once a client ID is set. The JSON API returns `ups` and
+ *    `num_comments`, which is what genuine engagement ranking needs. Auth uses
+ *    the `installed_client` grant -- no client secret, the one OAuth flow safe to
+ *    run from a distributed APK.
+ *
+ * The keyless tier is why a fresh install has six working sources instead of
+ * four, before the user has pasted anything.
  *
  * Recognised [SourceConfig.params]:
  *  - `subreddit` (required) -- without the `r/` prefix
@@ -44,8 +56,108 @@ class RedditFeeler(
         if (subreddit.isEmpty()) return FeelerResult.Unavailable("No subreddit configured")
 
         val clientId = credentials.redditClientId()?.trim()
-        if (clientId.isNullOrEmpty()) return FeelerResult.Unavailable("No Reddit client ID set")
+        if (clientId.isNullOrEmpty()) return fetchKeyless(config, subreddit, window)
 
+        return fetchAuthenticated(config, subreddit, clientId, window)
+    }
+
+    /**
+     * The public feed. Ranks on recency because Reddit does not put scores in its
+     * RSS -- worth knowing when comparing a keyless install against one with a
+     * client ID.
+     */
+    private suspend fun fetchKeyless(
+        config: SourceConfig,
+        subreddit: String,
+        window: TimeWindow,
+    ): FeelerResult {
+        val url = "https://www.reddit.com/r/$subreddit/top/.rss" +
+            "?t=day&limit=${SpotlightSpec.CANDIDATES_PER_SOURCE}"
+
+        val headers = mapOf("Accept" to "application/atom+xml, application/xml;q=0.9")
+
+        // Measured against live Reddit: unauthenticated requests come back with
+        // `x-ratelimit-remaining: 0.0` and a ~60s reset after a *single* call.
+        // Since a drop fetches every source concurrently, two keyless subreddits
+        // would otherwise guarantee a 429 on the second one. The mutex makes the
+        // Reddit calls take turns, and the wait below respects the budget the
+        // server actually advertises.
+        //
+        // This is affordable precisely because a drop is background work: a
+        // minute of waiting inside a WorkManager job costs nothing, where the
+        // same wait on a user-facing path would be unacceptable.
+        return keylessGate.withLock {
+            var response = try {
+                http.get(url, headers)
+            } catch (e: HttpFailure) {
+                return@withLock FeelerResult.Unavailable("Network error: ${e.message}")
+            }
+
+            if (response.code == 429) {
+                val wait = response.header("x-ratelimit-reset")?.toDoubleOrNull()?.toLong()
+                    ?: response.header("retry-after")?.toLongOrNull()
+                    ?: DEFAULT_RATE_LIMIT_WAIT_S
+                delay(wait.coerceIn(1, MAX_RATE_LIMIT_WAIT_S) * 1_000L)
+
+                response = try {
+                    http.get(url, headers)
+                } catch (e: HttpFailure) {
+                    return@withLock FeelerResult.Unavailable("Network error: ${e.message}")
+                }
+            }
+
+            when {
+                response.code == 429 -> FeelerResult.Unavailable(
+                    "Rate limited by Reddit - add a client ID in Sources to lift this",
+                )
+                // Reddit hard-blocks generic user agents. Worth naming, because
+                // it looks nothing like a rate limit from the outside.
+                response.code == 403 -> FeelerResult.Unavailable("Reddit rejected the request (403)")
+                !response.isSuccess -> FeelerResult.Unavailable("Reddit returned HTTP ${response.code}")
+                else -> parseKeyless(response.body, config, window)
+            }
+        }
+    }
+
+    private fun parseKeyless(body: String, config: SourceConfig, window: TimeWindow): FeelerResult {
+        val posts = try {
+            parseRss(body, config)
+        } catch (e: Exception) {
+            return FeelerResult.Unavailable("Could not parse Reddit feed: ${e.message}")
+        }
+
+        if (posts.isEmpty()) return FeelerResult.Unavailable("Reddit feed had no readable items")
+        return FeelerResult.Success(posts.filter { it.publishedAt in window })
+    }
+
+    internal fun parseRss(xml: String, config: SourceConfig): List<RawPost> =
+        XmlFeed.entries(xml).mapNotNull { entry ->
+            val published = XmlFeed.parseDate(entry.text("published", "updated"))
+                ?: return@mapNotNull null
+            val link = entry.link() ?: return@mapNotNull null
+            val title = entry.text("title")?.takeIf { it.isNotBlank() } ?: return@mapNotNull null
+
+            RawPost(
+                sourceConfigId = config.id,
+                // Reddit's Atom ids look like "t3_1vg19z7"; the bare id is what
+                // the JSON API returns, so stripping it keeps dedup working
+                // across an upgrade from keyless to authenticated.
+                externalId = entry.text("id")?.removePrefix("t3_") ?: link,
+                title = title,
+                permalink = link,
+                publishedAt = published,
+                engagement = null, // RSS carries no score or comment count
+                thumbnailUrl = entry.attr("media:thumbnail", "url"),
+                author = entry.text("author")?.trim(),
+            )
+        }
+
+    private suspend fun fetchAuthenticated(
+        config: SourceConfig,
+        subreddit: String,
+        clientId: String,
+        window: TimeWindow,
+    ): FeelerResult {
         val token = try {
             token(clientId) ?: return FeelerResult.Unavailable("Reddit rejected the client ID")
         } catch (e: HttpFailure) {
@@ -152,5 +264,11 @@ class RedditFeeler(
 
     private companion object {
         val json = Json { ignoreUnknownKeys = true; coerceInputValues = true }
+
+        /** Serialises keyless calls so concurrent subreddits do not collide. */
+        val keylessGate = Mutex()
+
+        const val DEFAULT_RATE_LIMIT_WAIT_S = 60L
+        const val MAX_RATE_LIMIT_WAIT_S = 70L
     }
 }

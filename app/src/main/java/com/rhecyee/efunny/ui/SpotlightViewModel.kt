@@ -5,6 +5,7 @@ import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import androidx.work.WorkManager
 import com.rhecyee.efunny.EFunnyGraph
+import com.rhecyee.efunny.core.schedule.DropSchedule
 import com.rhecyee.efunny.data.SpotlightEntity
 import com.rhecyee.efunny.data.SpotlightPost
 import com.rhecyee.efunny.schedule.DropScheduler
@@ -64,12 +65,21 @@ class SpotlightViewModel(app: Application) : AndroidViewModel(app) {
             }
         }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), SpotlightUiState())
 
+    /**
+     * Backs the countdown on the end-of-spotlight card. Held as state rather
+     * than rebuilt per tick because constructing it reads the encrypted prefs
+     * for the drop time zone, and the card ticks once a second.
+     */
+    private val _schedule = MutableStateFlow<DropSchedule?>(null)
+    val schedule: StateFlow<DropSchedule?> = _schedule
+
     init {
         // Arming the chain reads the encrypted prefs, which touches the
         // keystore -- off the main thread so first frame is not held up by it.
         viewModelScope.launch(Dispatchers.IO) {
             repository.ensureSeeded()
             DropScheduler.ensureScheduled(app)
+            _schedule.value = EFunnyGraph.schedule(app)
         }
     }
 

@@ -8,8 +8,15 @@ import okhttp3.Request
 import java.io.IOException
 import java.util.concurrent.TimeUnit
 
-data class HttpResponse(val code: Int, val body: String) {
+data class HttpResponse(
+    val code: Int,
+    val body: String,
+    /** Lower-cased header names. Reddit's rate-limit budget arrives this way. */
+    val headers: Map<String, String> = emptyMap(),
+) {
     val isSuccess: Boolean get() = code in 200..299
+
+    fun header(name: String): String? = headers[name.lowercase()]
 }
 
 /**
@@ -56,7 +63,13 @@ class OkHttpClientHttp(
         headers.forEach { (k, v) -> builder.header(k, v) }
         try {
             client.newCall(builder.build()).execute().use { response ->
-                HttpResponse(response.code, response.body?.string().orEmpty())
+                HttpResponse(
+                    code = response.code,
+                    body = response.body?.string().orEmpty(),
+                    headers = response.headers.names().associate {
+                        it.lowercase() to response.headers[it].orEmpty()
+                    },
+                )
             }
         } catch (e: IOException) {
             throw HttpFailure("Request failed: ${e.message}", e)

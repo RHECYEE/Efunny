@@ -1,9 +1,9 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<testsuite name="com.rhecyee.efunny.core.spotlight.FullDayTest" tests="3" skipped="0" failures="0" errors="0" timestamp="2026-08-06T04:57:17" hostname="vm" time="0.1">
+<testsuite name="com.rhecyee.efunny.core.spotlight.FullDayTest" tests="3" skipped="0" failures="0" errors="0" timestamp="2026-08-06T05:16:20" hostname="vm" time="0.086">
   <properties/>
-  <testcase name="a full day produces 21 distinct posts, three from every source()" classname="com.rhecyee.efunny.core.spotlight.FullDayTest" time="0.079"/>
-  <testcase name="a dead source costs the day its three posts but never the drop size()" classname="com.rhecyee.efunny.core.spotlight.FullDayTest" time="0.009"/>
-  <testcase name="one source throwing does not take the whole drop down()" classname="com.rhecyee.efunny.core.spotlight.FullDayTest" time="0.008"/>
+  <testcase name="a full day produces 21 distinct posts, three from every source()" classname="com.rhecyee.efunny.core.spotlight.FullDayTest" time="0.068"/>
+  <testcase name="a dead source costs the day its three posts but never the drop size()" classname="com.rhecyee.efunny.core.spotlight.FullDayTest" time="0.008"/>
+  <testcase name="one source throwing does not take the whole drop down()" classname="com.rhecyee.efunny.core.spotlight.FullDayTest" time="0.007"/>
   <system-out><![CDATA[]]></system-out>
   <system-err><![CDATA[]]></system-err>
 </testsuite>

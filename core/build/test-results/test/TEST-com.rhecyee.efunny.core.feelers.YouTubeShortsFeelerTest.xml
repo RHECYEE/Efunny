@@ -1,14 +1,14 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<testsuite name="com.rhecyee.efunny.core.feelers.YouTubeShortsFeelerTest" tests="8" skipped="0" failures="0" errors="0" timestamp="2026-08-06T04:57:17" hostname="vm" time="0.094">
+<testsuite name="com.rhecyee.efunny.core.feelers.YouTubeShortsFeelerTest" tests="8" skipped="0" failures="0" errors="0" timestamp="2026-08-06T05:16:20" hostname="vm" time="0.054">
   <properties/>
-  <testcase name="weights likes far above views()" classname="com.rhecyee.efunny.core.feelers.YouTubeShortsFeelerTest" time="0.038"/>
-  <testcase name="reports unavailable when nothing in the results was actually a Short()" classname="com.rhecyee.efunny.core.feelers.YouTubeShortsFeelerTest" time="0.004"/>
-  <testcase name="spends exactly one metered search call per fetch()" classname="com.rhecyee.efunny.core.feelers.YouTubeShortsFeelerTest" time="0.004"/>
-  <testcase name="excludes results longer than three minutes()" classname="com.rhecyee.efunny.core.feelers.YouTubeShortsFeelerTest" time="0.022"/>
-  <testcase name="searches rather than reading the mostPopular chart()" classname="com.rhecyee.efunny.core.feelers.YouTubeShortsFeelerTest" time="0.005"/>
+  <testcase name="weights likes far above views()" classname="com.rhecyee.efunny.core.feelers.YouTubeShortsFeelerTest" time="0.024"/>
+  <testcase name="reports unavailable when nothing in the results was actually a Short()" classname="com.rhecyee.efunny.core.feelers.YouTubeShortsFeelerTest" time="0.003"/>
+  <testcase name="spends exactly one metered search call per fetch()" classname="com.rhecyee.efunny.core.feelers.YouTubeShortsFeelerTest" time="0.003"/>
+  <testcase name="excludes results longer than three minutes()" classname="com.rhecyee.efunny.core.feelers.YouTubeShortsFeelerTest" time="0.008"/>
+  <testcase name="searches rather than reading the mostPopular chart()" classname="com.rhecyee.efunny.core.feelers.YouTubeShortsFeelerTest" time="0.004"/>
   <testcase name="reports unavailable when YouTube rejects the key()" classname="com.rhecyee.efunny.core.feelers.YouTubeShortsFeelerTest" time="0.003"/>
-  <testcase name="reports unavailable without an API key()" classname="com.rhecyee.efunny.core.feelers.YouTubeShortsFeelerTest" time="0.004"/>
-  <testcase name="stands down cleanly when the daily search budget is spent()" classname="com.rhecyee.efunny.core.feelers.YouTubeShortsFeelerTest" time="0.004"/>
+  <testcase name="reports unavailable without an API key()" classname="com.rhecyee.efunny.core.feelers.YouTubeShortsFeelerTest" time="0.002"/>
+  <testcase name="stands down cleanly when the daily search budget is spent()" classname="com.rhecyee.efunny.core.feelers.YouTubeShortsFeelerTest" time="0.002"/>
   <system-out><![CDATA[]]></system-out>
   <system-err><![CDATA[]]></system-err>
 </testsuite>

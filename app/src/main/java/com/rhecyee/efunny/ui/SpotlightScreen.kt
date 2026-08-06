@@ -60,6 +60,7 @@ fun SpotlightScreen(
     viewModel: SpotlightViewModel = viewModel(),
 ) {
     val state by viewModel.state.collectAsState()
+    val schedule by viewModel.schedule.collectAsState()
     val context = LocalContext.current
 
     Scaffold(
@@ -106,6 +107,15 @@ fun SpotlightScreen(
                 ) {
                     items(state.posts, key = { it.id }) { post ->
                         PostCard(post) { open(context, post.permalink) }
+                    }
+
+                    // The set is finite by design, so the feed gets a definite
+                    // bottom rather than trailing off like infinite scroll.
+                    item(key = "thats-all") {
+                        ThatsAllCard(
+                            schedule = schedule,
+                            modifier = Modifier.padding(top = 8.dp, bottom = 16.dp),
+                        )
                     }
                 }
             }

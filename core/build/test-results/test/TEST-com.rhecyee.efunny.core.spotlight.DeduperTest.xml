@@ -1,13 +1,13 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<testsuite name="com.rhecyee.efunny.core.spotlight.DeduperTest" tests="7" skipped="0" failures="0" errors="0" timestamp="2026-08-06T04:57:17" hostname="vm" time="0.026">
+<testsuite name="com.rhecyee.efunny.core.spotlight.DeduperTest" tests="7" skipped="0" failures="0" errors="0" timestamp="2026-08-06T05:16:20" hostname="vm" time="0.025">
   <properties/>
   <testcase name="leaves genuinely different posts alone()" classname="com.rhecyee.efunny.core.spotlight.DeduperTest" time="0.006"/>
   <testcase name="catches the same permalink under a different id()" classname="com.rhecyee.efunny.core.spotlight.DeduperTest" time="0.001"/>
-  <testcase name="catches a repost that only added an emoji and changed a stopword()" classname="com.rhecyee.efunny.core.spotlight.DeduperTest" time="0.004"/>
-  <testcase name="nothing is a duplicate of an empty history()" classname="com.rhecyee.efunny.core.spotlight.DeduperTest" time="0.002"/>
+  <testcase name="catches a repost that only added an emoji and changed a stopword()" classname="com.rhecyee.efunny.core.spotlight.DeduperTest" time="0.006"/>
+  <testcase name="nothing is a duplicate of an empty history()" classname="com.rhecyee.efunny.core.spotlight.DeduperTest" time="0.001"/>
   <testcase name="does not collapse two short unrelated titles()" classname="com.rhecyee.efunny.core.spotlight.DeduperTest" time="0.001"/>
   <testcase name="a rewritten headline sharing a few words is not a duplicate()" classname="com.rhecyee.efunny.core.spotlight.DeduperTest" time="0.001"/>
-  <testcase name="catches the same post by external id even when titles differ()" classname="com.rhecyee.efunny.core.spotlight.DeduperTest" time="0.001"/>
+  <testcase name="catches the same post by external id even when titles differ()" classname="com.rhecyee.efunny.core.spotlight.DeduperTest" time="0.002"/>
   <system-out><![CDATA[]]></system-out>
   <system-err><![CDATA[]]></system-err>
 </testsuite>
