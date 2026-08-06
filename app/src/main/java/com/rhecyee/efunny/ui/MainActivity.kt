@@ -10,7 +10,6 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
-import com.rhecyee.efunny.schedule.DropScheduler
 import com.rhecyee.efunny.ui.theme.EFunnyTheme
 
 class MainActivity : ComponentActivity() {
@@ -21,9 +20,9 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
-        // Make sure the chain is armed even if the app has never run a drop.
-        DropScheduler.ensureScheduled(this)
-
+        // The drop chain is armed by SpotlightViewModel's init, off the main
+        // thread -- arming it here would put an encrypted-prefs read (and so a
+        // keystore round trip) in front of the first frame.
         setContent {
             EFunnyTheme {
                 LaunchedEffect(Unit) {

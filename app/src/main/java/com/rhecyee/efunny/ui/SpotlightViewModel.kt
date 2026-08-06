@@ -3,17 +3,21 @@ package com.rhecyee.efunny.ui
 import android.app.Application
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import androidx.work.WorkManager
 import com.rhecyee.efunny.EFunnyGraph
 import com.rhecyee.efunny.data.SpotlightEntity
 import com.rhecyee.efunny.data.SpotlightPost
 import com.rhecyee.efunny.schedule.DropScheduler
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flowOf
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 
@@ -30,7 +34,16 @@ class SpotlightViewModel(app: Application) : AndroidViewModel(app) {
     private val repository = EFunnyGraph.repository(app)
 
     private val selectedId = MutableStateFlow<Long?>(null)
-    private val refreshing = MutableStateFlow(false)
+
+    /**
+     * Driven by WorkManager rather than a timer. The drop runs as background
+     * work so it survives the user navigating away, which means the only honest
+     * source of "still refreshing" is the work's own state.
+     */
+    private val refreshing: Flow<Boolean> =
+        WorkManager.getInstance(app)
+            .getWorkInfosForUniqueWorkFlow(DropScheduler.MANUAL_WORK)
+            .map { infos -> infos.any { !it.state.isFinished } }
 
     private val drops = repository.observeRecentSpotlights()
 
@@ -52,25 +65,20 @@ class SpotlightViewModel(app: Application) : AndroidViewModel(app) {
         }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), SpotlightUiState())
 
     init {
-        viewModelScope.launch { repository.ensureSeeded() }
-        DropScheduler.ensureScheduled(app)
+        // Arming the chain reads the encrypted prefs, which touches the
+        // keystore -- off the main thread so first frame is not held up by it.
+        viewModelScope.launch(Dispatchers.IO) {
+            repository.ensureSeeded()
+            DropScheduler.ensureScheduled(app)
+        }
     }
 
     fun select(id: Long) {
         selectedId.value = id
     }
 
-    /**
-     * Recompiles the current slot on demand. The work still runs through
-     * WorkManager rather than in the ViewModel, so a refresh survives the user
-     * navigating away mid-fetch.
-     */
+    /** Recompiles the current slot on demand. */
     fun refresh() {
-        refreshing.value = true
-        DropScheduler.runNow(getApplication())
-        viewModelScope.launch {
-            kotlinx.coroutines.delay(1_500)
-            refreshing.value = false
-        }
+        viewModelScope.launch(Dispatchers.IO) { DropScheduler.runNow(getApplication()) }
     }
 }

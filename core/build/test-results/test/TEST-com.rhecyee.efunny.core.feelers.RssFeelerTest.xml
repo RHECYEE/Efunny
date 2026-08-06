@@ -1,16 +1,16 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<testsuite name="com.rhecyee.efunny.core.feelers.RssFeelerTest" tests="10" skipped="0" failures="0" errors="0" timestamp="2026-08-06T04:38:49" hostname="vm" time="0.159">
+<testsuite name="com.rhecyee.efunny.core.feelers.RssFeelerTest" tests="10" skipped="0" failures="0" errors="0" timestamp="2026-08-06T04:53:44" hostname="vm" time="0.284">
   <properties/>
-  <testcase name="drops items published outside the lookback window()" classname="com.rhecyee.efunny.core.feelers.RssFeelerTest" time="0.055"/>
-  <testcase name="reports unavailable when no URL is configured()" classname="com.rhecyee.efunny.core.feelers.RssFeelerTest" time="0.003"/>
-  <testcase name="skips only the unparseable item rather than failing the feed()" classname="com.rhecyee.efunny.core.feelers.RssFeelerTest" time="0.02"/>
-  <testcase name="reports unavailable instead of throwing when the feed is unreachable()" classname="com.rhecyee.efunny.core.feelers.RssFeelerTest" time="0.007"/>
-  <testcase name="reads ISO-8601 pubDate even though RSS specifies RFC-822()" classname="com.rhecyee.efunny.core.feelers.RssFeelerTest" time="0.022"/>
-  <testcase name="reads RFC-822 dates and Atom entries()" classname="com.rhecyee.efunny.core.feelers.RssFeelerTest" time="0.008"/>
-  <testcase name="parses the live FML feed captured from fmylife dot com()" classname="com.rhecyee.efunny.core.feelers.RssFeelerTest" time="0.013"/>
-  <testcase name="text mode description pulls the joke out of a byline feed()" classname="com.rhecyee.efunny.core.feelers.RssFeelerTest" time="0.01"/>
-  <testcase name="honours an explicit text mode override()" classname="com.rhecyee.efunny.core.feelers.RssFeelerTest" time="0.005"/>
-  <testcase name="reports unavailable for an empty feed()" classname="com.rhecyee.efunny.core.feelers.RssFeelerTest" time="0.007"/>
+  <testcase name="drops items published outside the lookback window()" classname="com.rhecyee.efunny.core.feelers.RssFeelerTest" time="0.1"/>
+  <testcase name="reports unavailable when no URL is configured()" classname="com.rhecyee.efunny.core.feelers.RssFeelerTest" time="0.009"/>
+  <testcase name="skips only the unparseable item rather than failing the feed()" classname="com.rhecyee.efunny.core.feelers.RssFeelerTest" time="0.029"/>
+  <testcase name="reports unavailable instead of throwing when the feed is unreachable()" classname="com.rhecyee.efunny.core.feelers.RssFeelerTest" time="0.018"/>
+  <testcase name="reads ISO-8601 pubDate even though RSS specifies RFC-822()" classname="com.rhecyee.efunny.core.feelers.RssFeelerTest" time="0.043"/>
+  <testcase name="reads RFC-822 dates and Atom entries()" classname="com.rhecyee.efunny.core.feelers.RssFeelerTest" time="0.01"/>
+  <testcase name="parses the live FML feed captured from fmylife dot com()" classname="com.rhecyee.efunny.core.feelers.RssFeelerTest" time="0.036"/>
+  <testcase name="text mode description pulls the joke out of a byline feed()" classname="com.rhecyee.efunny.core.feelers.RssFeelerTest" time="0.011"/>
+  <testcase name="honours an explicit text mode override()" classname="com.rhecyee.efunny.core.feelers.RssFeelerTest" time="0.004"/>
+  <testcase name="reports unavailable for an empty feed()" classname="com.rhecyee.efunny.core.feelers.RssFeelerTest" time="0.006"/>
   <system-out><![CDATA[]]></system-out>
   <system-err><![CDATA[]]></system-err>
 </testsuite>

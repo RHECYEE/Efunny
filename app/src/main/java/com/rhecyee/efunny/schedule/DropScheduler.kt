@@ -33,6 +33,9 @@ object DropScheduler {
 
     const val TAG_DROP = "efunny-drop"
 
+    /** Observed by the UI to know whether a manual refresh is still running. */
+    const val MANUAL_WORK = "efunny-manual"
+
     private const val SAFETY_NET_WORK = "efunny-safety-net"
 
     /**
@@ -63,7 +66,7 @@ object DropScheduler {
         val slot = schedule.currentSlotAt(now)
 
         WorkManager.getInstance(context).enqueueUniqueWork(
-            "efunny-manual",
+            MANUAL_WORK,
             ExistingWorkPolicy.REPLACE,
             OneTimeWorkRequestBuilder<SpotlightWorker>()
                 .setInputData(inputFor(slot.name, now))
