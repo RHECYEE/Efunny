@@ -138,8 +138,15 @@ hand in `EFunnyGraph`, matching the sibling FIRE-MAPS project.
 
 ## Status
 
-An early build. The pipeline, scheduling and both dedup passes are covered by 66
+An early build. The pipeline, scheduling and both dedup passes are covered by 72
 unit tests, and the RSS parser is tested against a live capture of
 `fmylife.com/rss` — which emits ISO-8601 in `pubDate` where the spec calls for
 RFC-822, and hides the joke in `<description>` behind a "By Anonymous" byline.
-It has not yet been run against real YouTube or Reddit credentials on a device.
+
+The four seeded feed URLs were checked against the live web on 2026-08-06 and all
+return content. Feed URLs rot, though, and no test can catch that offline — if a
+default source starts reporting an error on the Sources screen, the fix is to
+edit its URL there.
+
+Not yet run against real YouTube or Reddit credentials on a device: those two
+feelers are covered by unit tests over captured API payloads, not live calls.
