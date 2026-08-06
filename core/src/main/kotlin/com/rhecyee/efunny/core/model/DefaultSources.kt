@@ -56,7 +56,7 @@ object DefaultSources {
             id = 6,
             type = SourceType.RSS,
             displayName = "McSweeney's",
-            params = mapOf("url" to "https://www.mcsweeneys.net/rss/daily"),
+            params = mapOf("url" to "https://www.mcsweeneys.net/rss"),
             position = 5,
         ),
         // The seventh slot is a live RSS source rather than one of the dark
