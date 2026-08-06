@@ -1,0 +1,14 @@
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="24"
+    android:viewportHeight="24"
+    android:tint="#FFFFFF">
+    <!-- A spotlight beam: a small circle above a widening cone. -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M12,2m-3,0a3,3 0,1 1,6 0a3,3 0,1 1,-6 0" />
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M9.2,7.4L4,20h16L14.8,7.4a5,5 0,0 1,-5.6 0z" />
+</vector>

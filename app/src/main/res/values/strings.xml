@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">EFunny</string>
+
+    <string name="channel_drops">Spotlight drops</string>
+    <string name="channel_drops_description">Announces each compiled Spotlight at 05:00, 15:00 and 20:00</string>
+
+    <string name="drop_ready_title">%1$s Spotlight</string>
+    <plurals name="drop_ready_body">
+        <item quantity="one">%d trending post from the last 24 hours</item>
+        <item quantity="other">%d trending posts from the last 24 hours</item>
+    </plurals>
+</resources>
