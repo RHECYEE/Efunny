@@ -1,5 +1,0 @@
-<?xml version="1.0" encoding="utf-8"?>
-<resources>
-    <!-- Compose supplies the real theme; this is the launch/window theme. -->
-    <style name="Theme.EFunny" parent="android:Theme.Material.Light.NoActionBar" />
-</resources>

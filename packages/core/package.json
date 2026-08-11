@@ -1,0 +1,12 @@
+{
+  "name": "@arbterminal/core",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Deterministic domain model, matching engine and arbitrage math. No venue logic, no network, no LLM.",
+  "main": "./src/index.ts",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "dependencies": {}
+}
