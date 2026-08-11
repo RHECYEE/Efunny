@@ -1,0 +1,30 @@
+{
+  "name": "arbterminal",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Read-only cross-venue prediction market & sports arbitrage scanner",
+  "workspaces": [
+    "packages/*",
+    "apps/*"
+  ],
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "typecheck": "tsc -p packages/core --noEmit && tsc -p packages/adapters --noEmit && tsc -p apps/server --noEmit && tsc -p apps/web --noEmit",
+    "dev": "concurrently -n server,web -c cyan,magenta \"npm:dev:server\" \"npm:dev:web\"",
+    "dev:server": "npm run dev -w @arbterminal/server",
+    "dev:web": "npm run dev -w @arbterminal/web",
+    "build": "npm run build -w @arbterminal/web",
+    "start": "npm run start -w @arbterminal/server"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.2",
+    "concurrently": "^9.1.0",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.2",
+    "vitest": "^2.1.8"
+  }
+}
