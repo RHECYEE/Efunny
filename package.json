@@ -18,11 +18,14 @@
     "dev:server": "npm run dev -w @arbterminal/server",
     "dev:web": "npm run dev -w @arbterminal/web",
     "build": "npm run build -w @arbterminal/web",
-    "start": "npm run start -w @arbterminal/server"
+    "start": "npm run start -w @arbterminal/server",
+    "package": "node scripts/build-desktop.mjs"
   },
   "devDependencies": {
     "@types/node": "^22.10.2",
     "concurrently": "^9.1.0",
+    "esbuild": "^0.28.2",
+    "postject": "^1.0.0-alpha.6",
     "tsx": "^4.19.2",
     "typescript": "^5.7.2",
     "vitest": "^2.1.8"

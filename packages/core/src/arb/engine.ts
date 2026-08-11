@@ -51,6 +51,15 @@ export interface ArbEngineOptions {
   stale_quote_ms?: number;
   /** Probability divergence needed to report RELATIVE_VALUE. Default 30 dc (3%). */
   relative_value_threshold?: DeciCents;
+  /**
+   * Widest bid-ask spread, in deci-cents, for a quote's mid to count as a
+   * probability estimate. Default 100 dc (10c).
+   *
+   * A market quoted 1c/99c has a mid of 50c that means nothing, and summing a
+   * basket of those produces an "overround" driven entirely by spread width
+   * rather than by any disagreement about the outcome.
+   */
+  max_spread_for_divergence?: DeciCents;
   /** Positions with less capacity than this are dropped as untradeable. Default 1 unit. */
   min_capacity_units?: number;
   now?: () => Date;
@@ -67,6 +76,7 @@ function resolve(options: ArbEngineOptions): ResolvedOptions {
     min_net_edge: options.min_net_edge ?? 0,
     stale_quote_ms: options.stale_quote_ms ?? 60_000,
     relative_value_threshold: options.relative_value_threshold ?? 30,
+    max_spread_for_divergence: options.max_spread_for_divergence ?? 100,
     min_capacity_units: options.min_capacity_units ?? 1,
     now: options.now ?? (() => new Date()),
   };
@@ -473,6 +483,18 @@ export function detectCrossVenue(
 }
 
 /**
+ * A quote's mid only estimates a probability when the market is quoted
+ * tightly enough for the midpoint to mean something. Returns the spread, or
+ * null when the quote is one-sided or too wide to be usable.
+ */
+function usableSpread(quote: Quote, maxSpread: DeciCents): DeciCents | null {
+  if (quote.bid === null || quote.ask === null) return null;
+  const spread = quote.ask - quote.bid;
+  if (spread < 0 || spread > maxSpread) return null;
+  return spread;
+}
+
+/**
  * Markets that imply meaningfully different probabilities with no guaranteed
  * hedge available. Reported so the divergence is visible, but never as
  * arbitrage — the position can lose.
@@ -491,6 +513,14 @@ export function detectRelativeValue(
   const leftProb = left.quote.implied_probability;
   const rightProb = right.quote.implied_probability;
   if (leftProb === null || rightProb === null) return null;
+
+  // Two wide books can "disagree" purely because their midpoints are noise.
+  if (
+    usableSpread(left.quote, opts.max_spread_for_divergence) === null ||
+    usableSpread(right.quote, opts.max_spread_for_divergence) === null
+  ) {
+    return null;
+  }
 
   const divergence = Math.abs(leftProb - rightProb) * ONE_DOLLAR;
   if (divergence < opts.relative_value_threshold) return null;
@@ -540,6 +570,15 @@ export function detectBasketDivergence(
   // Divergence is a description, not a hedge, so mutual exclusivity is enough.
   if (!noBasketEligible(snapshot).ok) return null;
 
+  // Every outcome must be quoted tightly enough for its mid to be a
+  // probability. One 1c/99c market in the basket is enough to manufacture an
+  // arbitrarily large "overround" out of nothing but spread width.
+  const spreads = snapshot.markets.map((m) =>
+    usableSpread(m.quote, opts.max_spread_for_divergence),
+  );
+  if (spreads.some((s) => s === null)) return null;
+  const widestSpread = Math.max(...(spreads as number[]));
+
   const probs = snapshot.markets.map((m) => m.quote.implied_probability);
   if (probs.some((p) => p === null)) return null;
   const sum = (probs as number[]).reduce((a, b) => a + b, 0);
@@ -586,7 +625,8 @@ export function detectBasketDivergence(
           overround > 0
             ? 'above the 1.0000 they can jointly be worth'
             : 'below the 1.0000 this exhaustive set must be worth'
-        }, but the ask side is too wide to lock the difference in.`,
+        }, but the ask side is too wide to lock the difference in. Widest ` +
+        `bid-ask across the outcomes is ${(widestSpread / 10).toFixed(1)}c.`,
     ],
   });
 }

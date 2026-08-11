@@ -1,0 +1,87 @@
+name: Build executables
+
+on:
+  # Tagging is the normal path; the manual trigger is for testing the build
+  # itself without minting a release.
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    strategy:
+      # One platform failing should not deny you the others.
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            artifact: ArbTerminal-windows
+            path: build/ArbTerminal.exe
+          - os: ubuntu-latest
+            artifact: ArbTerminal-linux
+            path: build/arbterminal
+          - os: macos-latest
+            artifact: ArbTerminal-macos
+            path: build/arbterminal
+
+    runs-on: ${{ matrix.os }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          # The executable embeds this runner's Node, so it must be a version
+          # that ships node:sqlite and the SEA asset API.
+          node-version: '22'
+          cache: npm
+
+      - run: npm ci
+
+      # Never ship a binary from code whose own tests do not pass.
+      - run: npm test
+
+      # A single executable cannot be cross-built: it is a copy of the host's
+      # own Node binary with a blob injected, so each platform builds its own.
+      - run: npm run package
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact }}
+          path: ${{ matrix.path }}
+          if-no-files-found: error
+
+  release:
+    needs: build
+    if: startsWith(github.ref, 'refs/tags/')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Name the binaries by platform
+        run: |
+          mkdir -p release
+          cp artifacts/ArbTerminal-windows/ArbTerminal.exe release/ArbTerminal-windows.exe
+          cp artifacts/ArbTerminal-linux/arbterminal    release/ArbTerminal-linux
+          cp artifacts/ArbTerminal-macos/arbterminal    release/ArbTerminal-macos
+          chmod +x release/ArbTerminal-linux release/ArbTerminal-macos
+
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: release/*
+          body: |
+            Download the file for your platform and run it. It starts a local
+            server and opens ArbTerminal in your browser. Nothing needs to be
+            installed.
+
+            These builds are unsigned. Windows SmartScreen will warn on first
+            run ("More info" then "Run anyway"), and macOS Gatekeeper needs
+            right-click then Open. Signing requires certificates this project
+            does not have.
+
+            Read-only: no order is ever placed at any venue.

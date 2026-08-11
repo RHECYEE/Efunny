@@ -1,5 +1,8 @@
 node_modules/
 dist/
+
+# Packaged executables and the SEA intermediates that produce them.
+build/
 *.tsbuildinfo
 .DS_Store
 .env

@@ -142,8 +142,11 @@ describe('paper trading an unhedged relative-value position', () => {
   const rvMarkets = outcomes.map((outcome, index) =>
     market({ venue: 'venue_a', venue_market_id: `RV-${index}`, outcome, outcome_label: outcome }),
   );
-  /** Mids sum to 1.23 across an exhaustive set, but nothing is hedgeable. */
-  const rvBook = book([[500, 50]], [[680, 50]]);
+  /**
+   * Tightly quoted at 33c/43c so the mids are usable; they sum to 1.14 across
+   * an exhaustive set, but nothing is hedgeable at the ask.
+   */
+  const rvBook = book([[430, 50]], [[670, 50]]);
 
   function detectRelativeValue() {
     const result = scan(
@@ -208,7 +211,7 @@ describe('paper trading an unhedged relative-value position', () => {
     const trade = executePaperTrade({
       opportunity,
       detection_quotes: [quote(legMarketId, rvBook)],
-      execution_quotes: [quote(legMarketId, book([[520, 50]], [[680, 50]]))],
+      execution_quotes: [quote(legMarketId, book([[450, 50]], [[670, 50]]))],
       bankroll: 25_000,
       fees: zeroFees('venue_a'),
       now: frozenNow,

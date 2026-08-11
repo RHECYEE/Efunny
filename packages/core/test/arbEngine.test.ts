@@ -214,10 +214,26 @@ describe('mutually exclusive baskets', () => {
     expect(yesBasket).toBeUndefined();
   });
 
+  it('ignores a divergence manufactured by wide bid-ask spreads', () => {
+    // Quoted 2c bid / 90c ask, the midpoint is 46c and means nothing. Summed
+    // across three outcomes that is an "overround" of 0.38 built entirely out
+    // of spread width, with no disagreement about the outcome behind it.
+    const wide = markets.map((m) => ({ market: m, book: book([[900, 50]], [[980, 50]]) }));
+    const result = scan(
+      {
+        events: [snapshot({ canonical_outcome_set: outcomes, exhaustive: true }, wide)],
+      },
+      baseOptions(),
+    );
+    expect(only(result.opportunities, 'RELATIVE_VALUE')).toHaveLength(0);
+  });
+
   it('reports probability divergence as relative value, never as arbitrage', () => {
-    // Mids sum well above 1.00, but both baskets are unprofitable at the ask:
-    // 3 x 50c YES exceeds $1, and 3 x 68c NO exceeds the $2 it would pay.
-    const wide = markets.map((m) => ({ market: m, book: book([[500, 50]], [[680, 50]]) }));
+    // Tightly quoted at 33c/43c, so the 38c mids are meaningful. They sum to
+    // 1.14 across three outcomes that can jointly be worth only 1.00, yet
+    // neither basket clears at the ask: 3 x 43c YES exceeds $1, and 3 x 67c
+    // NO exceeds the $2 it would pay.
+    const wide = markets.map((m) => ({ market: m, book: book([[430, 50]], [[670, 50]]) }));
     const result = scan(
       {
         events: [snapshot({ canonical_outcome_set: outcomes, exhaustive: true }, wide)],

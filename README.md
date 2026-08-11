@@ -22,6 +22,34 @@ repository, and the venue client only reads public market-data endpoints.
 
 ## Quick start
 
+### Download and run it
+
+Grab the file for your platform from [Releases](../../releases) and run it. It
+starts a local server and opens ArbTerminal in your browser. Nothing needs to be
+installed — the Node runtime, the server and the whole interface are inside the
+one file (~120 MB).
+
+| Platform | File |
+| --- | --- |
+| Windows | `ArbTerminal-windows.exe` |
+| macOS | `ArbTerminal-macos` |
+| Linux | `ArbTerminal-linux` |
+
+These builds are **unsigned**. Windows SmartScreen warns on first run — "More
+info" then "Run anyway". macOS Gatekeeper needs right-click → Open the first
+time. Signing needs certificates this project does not have.
+
+The quote log is written to your user data directory, not next to the
+executable, so it survives replacing the binary:
+
+| Platform | Path |
+| --- | --- |
+| Windows | `%LOCALAPPDATA%\ArbTerminal\arbterminal.sqlite` |
+| macOS | `~/Library/Application Support/ArbTerminal/` |
+| Linux | `~/.local/share/ArbTerminal/` |
+
+### Or run it from source
+
 ```bash
 npm install
 npm run dev          # API on :8787, terminal UI on :5173
@@ -31,13 +59,20 @@ Then open <http://localhost:5173>. No credentials are needed — every Kalshi en
 this uses is public and unauthenticated.
 
 ```bash
-npm test             # 91 tests, no network, no model
+npm test             # 92 tests, no network, no model
 npm run typecheck
+npm run package      # build the executable for the current platform
 ```
 
-Useful environment variables: `PORT`, `POLL_INTERVAL_MS` (default 30s),
-`MARKET_LIMIT` (600), `DEPTH_FETCH_LIMIT` (150), `MIN_NET_EDGE` (1 deci-cent),
-`ARBTERMINAL_DB` (`data/arbterminal.sqlite`).
+`npm run package` builds the UI, bundles the server into one CommonJS file with
+esbuild, embeds the interface as SEA assets, and injects the blob into a copy of
+this machine's Node. It **cannot cross-build**: the binary is a copy of the host's
+own Node, so a Windows `.exe` has to be produced on Windows. The release workflow
+runs it on each platform's own runner.
+
+Useful environment variables: `PORT` (steps forward if taken), `POLL_INTERVAL_MS`
+(default 30s), `MARKET_LIMIT` (600), `DEPTH_FETCH_LIMIT` (150), `MIN_NET_EDGE`
+(1 deci-cent), `ARBTERMINAL_DB`.
 
 ---
 
@@ -54,7 +89,7 @@ the math.
 **A dependency-free core package.** `@arbterminal/core` imports nothing. It has no
 network access, no database, no framework and no LLM client, which is what makes
 "the arb math is testable without live data" structurally true rather than a
-convention. 91 tests run in under a second.
+convention. 92 tests run in under a second.
 
 **Persistence with no native module.** `node:sqlite` ships with Node 22, so the
 quote log needs no build step. Fastify serves the API; Vite and React serve the UI.
@@ -198,6 +233,18 @@ The same distinction shapes relative-value reporting. Across a non-exhaustive
 mutually exclusive set, mid prices summing to *less* than 1.00 is the expected
 state, not a signal — only an overround is anomalous. Enforcing that turned 16
 reported "opportunities" on a live scan into the 2 that were real.
+
+### A mid is only a probability if the market is quoted tightly
+
+A market quoted 1c/99c has a midpoint of 50c that means nothing, and summing a
+basket of those manufactures an arbitrarily large "overround" out of pure spread
+width. A live scan surfaced a 19-outcome UK politics event whose mids summed to
+3.15 for exactly this reason, ranked top of the list at "+214.80c".
+
+Divergence detection therefore requires every outcome to be quoted inside
+`max_spread_for_divergence` (default 10c) before its mid counts at all, and the
+warning states the widest spread in the basket. This is deliberately
+conservative: it stays quiet rather than ranking an artifact first.
 
 ### Positions are sized on average cost
 
