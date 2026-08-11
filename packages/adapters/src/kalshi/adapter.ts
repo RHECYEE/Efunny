@@ -21,6 +21,14 @@ export interface KalshiAdapterOptions extends KalshiClientOptions {
    * the top-of-book fields already present on the market payload.
    */
   depth_fetch_limit?: number;
+  /**
+   * Series to sweep instead of crawling the whole exchange. Kalshi lists
+   * around 90,000 open markets; a full crawl is ~50 requests and half a
+   * minute, which no short poll interval can absorb. Naming the series that
+   * matter — typically the ones a second venue also prices — makes the cycle
+   * a handful of requests.
+   */
+  series_tickers?: string[];
 }
 
 /**
@@ -47,6 +55,7 @@ export class KalshiAdapter implements VenueAdapter {
   private readonly client: KalshiClient;
   private readonly marketLimit: number;
   private readonly depthFetchLimit: number;
+  private readonly seriesTickers: string[];
   /** venue ticker -> canonical market id, for `fetchQuotes`. */
   private readonly tickerIndex = new Map<string, string>();
 
@@ -54,11 +63,13 @@ export class KalshiAdapter implements VenueAdapter {
     this.client = options.client ?? new KalshiClient(options);
     this.marketLimit = options.market_limit ?? 400;
     this.depthFetchLimit = options.depth_fetch_limit ?? 120;
+    this.seriesTickers = options.series_tickers ?? [];
   }
 
   async fetchSnapshots(options: FetchOptions = {}): Promise<EventSnapshot[]> {
     const rawEvents = await this.client.listEvents({
       limit: options.limit ?? this.marketLimit,
+      series_tickers: this.seriesTickers,
       signal: options.signal,
     });
 

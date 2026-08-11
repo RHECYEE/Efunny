@@ -12,6 +12,7 @@ import {
   type Quote,
   type SettlementSpec,
 } from '@arbterminal/core';
+import { venueApiProvenance } from '@arbterminal/core';
 
 /**
  * Fixture builders. Every arb-engine test is built from these rather than
@@ -53,6 +54,7 @@ export function market(overrides: Partial<Market> = {}): Market {
     status: 'OPEN',
     close_time: '2028-11-07T05:00:00.000Z',
     payout_per_contract: 1000,
+    provenance: venueApiProvenance(venue),
     ...overrides,
   };
 }

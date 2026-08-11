@@ -37,11 +37,40 @@ function check(name: string, passed: boolean, detail: string, blocking: boolean)
   return { name, passed, detail, blocking };
 }
 
+/** Deadlines within this window count as the same settlement moment. */
+const DEADLINE_TOLERANCE_MS = 7 * 24 * 60 * 60 * 1000;
+
+/**
+ * True when both markets state the same comparison against the same number,
+ * closing at the same time. A shared threshold alone is not enough — "above
+ * $100k during 2026" and "above $100k during 2027" agree on everything except
+ * the only thing that matters — so the deadline has to line up too.
+ */
+function structuralIdentity(left: Market, right: Market): boolean {
+  if (left.comparison_operator === 'NONE' || left.threshold === null) return false;
+  if (left.comparison_operator !== right.comparison_operator) return false;
+  if (!numbersEqual(left.threshold, right.threshold)) return false;
+  if (!numbersEqual(left.line, right.line)) return false;
+
+  if (left.close_time === null || right.close_time === null) return false;
+  const gap = Math.abs(Date.parse(left.close_time) - Date.parse(right.close_time));
+  return Number.isFinite(gap) && gap <= DEADLINE_TOLERANCE_MS;
+}
+
+/**
+ * Thresholds are equal within a *relative* epsilon.
+ *
+ * Venues quote the same strike differently: "above $99,999.99" and "crosses
+ * $100,000" are the same contract one cent apart, and an exact comparison
+ * would reject the pairing outright. The epsilon has to be relative, not
+ * absolute — a fixed tolerance wide enough for a six-figure crypto strike
+ * would happily equate a -3.5 spread with a -4.5 one.
+ */
 function numbersEqual(a: number | null, b: number | null): boolean {
   if (a === null && b === null) return true;
   if (a === null || b === null) return false;
-  // Lines are quoted to at most half-points; 1e-9 absorbs float representation.
-  return Math.abs(a - b) < 1e-9;
+  const scale = Math.max(1, Math.abs(a), Math.abs(b));
+  return Math.abs(a - b) <= 1e-6 * scale;
 }
 
 /**
@@ -174,6 +203,18 @@ export function verifyMatch(
   const sameCurrency = left.currency === right.currency;
   checks.push(
     check(
+      'same_structural_trigger',
+      structuralIdentity(left, right),
+      structuralIdentity(left, right)
+        ? `Both resolve on ${left.comparison_operator} ${String(left.threshold)} at the same ` +
+            `deadline, so they trigger on the same fact.`
+        : 'No shared threshold and deadline to corroborate the wording.',
+      false,
+    ),
+  );
+
+  checks.push(
+    check(
       'same_currency',
       sameCurrency,
       sameCurrency
@@ -197,6 +238,21 @@ export function verifyMatch(
     const identity = 0.5 * titleSim + 0.5 * outcomeSim;
     confidence = Math.min(0.94, identity);
     if (eventIdsEqual) confidence = Math.min(0.94, Math.max(confidence, 0.8 + 0.14 * outcomeSim));
+
+    // Two venues can describe one contract in words that share almost nothing
+    // — "How high will Bitcoin get in 2026 / Above $99,999.99" against "When
+    // will Bitcoin cross $100k again / Before January 2027". Where the
+    // *structure* agrees exactly (same comparison, same strike, same
+    // deadline), that is substantive evidence of identity and not merely an
+    // absent objection, so it sets a floor that pure token overlap cannot.
+    //
+    // The floor stays below the almost-certain band: matching structure says
+    // the two contracts trigger on the same fact, not that they settle the
+    // same way. Only the settlement comparison can speak to that, and it is
+    // subtracted below.
+    if (structuralIdentity(left, right)) {
+      confidence = Math.min(0.94, Math.max(confidence, 0.85));
+    }
   }
 
   confidence -= settlementDiff.confidence_penalty;
@@ -205,6 +261,29 @@ export function verifyMatch(
 
   // A market that is not open cannot be verified against live rules.
   if (left.status !== 'OPEN' || right.status !== 'OPEN') confidence -= 0.1;
+
+  // Provenance caps the result. A record that was repaired before ingestion
+  // was not matched on the venue's own text, so it cannot reach the top band
+  // however well every other check scores.
+  const ceiling = Math.min(
+    left.provenance.confidence_ceiling,
+    right.provenance.confidence_ceiling,
+  );
+  const capped = confidence > ceiling;
+  confidence = Math.min(confidence, ceiling);
+
+  const repairs = [...left.provenance.repairs, ...right.provenance.repairs];
+  checks.push(
+    check(
+      'unmodified_venue_text',
+      repairs.length === 0,
+      repairs.length === 0
+        ? 'Both records are the venues’ own text, unaltered.'
+        : `Matched against repaired text (${repairs.join('; ')})` +
+            `${capped ? `, so confidence is capped at ${(ceiling * 100).toFixed(0)}%` : ''}.`,
+      false,
+    ),
+  );
 
   const blockingFailure = checks.some((c) => c.blocking && !c.passed);
   if (blockingFailure) confidence = 0;
@@ -226,9 +305,30 @@ export function verifyMatch(
 }
 
 /**
- * Match every market in `left` against every market in `right`, keeping the
- * best pairing per market. Quadratic, but bucketed by canonical event so the
- * comparison count stays proportional to markets-per-event, not markets.
+ * Candidate key for pairing.
+ *
+ * Bucketing on the canonical event id would be cheaper but useless across
+ * venues: two books describe the same event in different words and land on
+ * different ids, which is exactly the case cross-venue matching exists for.
+ * Bucketing on the *structural* facts instead — tier, market type and the
+ * threshold to four significant figures — puts "above $99,999.99" and
+ * "crosses $100,000" in the same bucket while keeping a -3.5 spread away from
+ * a -4.5 one.
+ */
+function candidateKey(market: Market): string {
+  const threshold =
+    market.threshold === null ? '-' : Number(market.threshold).toPrecision(4);
+  const line = market.line === null ? '-' : Number(market.line).toPrecision(4);
+  return `${market.tier}|${market.market_type}|${market.comparison_operator}|${threshold}|${line}`;
+}
+
+/**
+ * Pair markets across venues, keeping every pairing that clears the reporting
+ * threshold.
+ *
+ * The cost is |A| x |B| within a bucket rather than |markets|^2, and in
+ * practice one side is an exchange with thousands of markets while the other
+ * is a book with a handful, so the product stays small.
  */
 export function matchMarkets(
   markets: Market[],
@@ -237,9 +337,10 @@ export function matchMarkets(
   const opts = { ...DEFAULTS, ...options };
   const byEvent = new Map<string, Market[]>();
   for (const market of markets) {
-    const bucket = byEvent.get(market.event_id);
+    const key = candidateKey(market);
+    const bucket = byEvent.get(key);
     if (bucket) bucket.push(market);
-    else byEvent.set(market.event_id, [market]);
+    else byEvent.set(key, [market]);
   }
 
   const matches: MarketMatch[] = [];

@@ -60,6 +60,17 @@ export interface ArbEngineOptions {
    * rather than by any disagreement about the outcome.
    */
   max_spread_for_divergence?: DeciCents;
+  /**
+   * The same limit for venues that quote both sides with a margin instead of
+   * a two-sided book. Default 250 dc (25%).
+   *
+   * A sportsbook has no bid to subtract, so its two-way width is the
+   * overround. That runs far wider than an exchange spread and is *removable*
+   * — the margin sits on both sides and de-vigging recovers a usable
+   * probability — so holding it to the exchange limit would discard every
+   * sportsbook quote as noise.
+   */
+  max_overround_for_divergence?: DeciCents;
   /** Positions with less capacity than this are dropped as untradeable. Default 1 unit. */
   min_capacity_units?: number;
   now?: () => Date;
@@ -77,6 +88,7 @@ function resolve(options: ArbEngineOptions): ResolvedOptions {
     stale_quote_ms: options.stale_quote_ms ?? 60_000,
     relative_value_threshold: options.relative_value_threshold ?? 30,
     max_spread_for_divergence: options.max_spread_for_divergence ?? 100,
+    max_overround_for_divergence: options.max_overround_for_divergence ?? 250,
     min_capacity_units: options.min_capacity_units ?? 1,
     now: options.now ?? (() => new Date()),
   };
@@ -105,6 +117,7 @@ function buildCostStack(
   reserveNote: string,
   feeNotes: string[],
   grossEdge: DeciCents,
+  slippageNote: string,
 ): CostStackEntry[] {
   return [
     {
@@ -120,10 +133,7 @@ function buildCostStack(
     {
       label: 'Modeled slippage',
       amount: -costs.slippage,
-      detail:
-        costs.slippage > 0
-          ? `Walking the book for ${costs.units.toFixed(2)} units lifts the average price`
-          : 'Top level absorbs the full size',
+      detail: slippageNote,
     },
     {
       label: 'Settlement mismatch reserve',
@@ -194,6 +204,42 @@ function buildOpportunity(input: BuildInput): Opportunity | null {
   if (!costs.fully_fillable) {
     warnings.push('Visible depth does not cover the sized position on every leg.');
   }
+
+  // A venue that publishes no order book gives the sizing model nothing to
+  // walk. Slippage then computes as zero, which is not the same as there
+  // being none, and the capacity figure is an assumption rather than an
+  // observation. Both have to be said out loud.
+  const assumedDepth = legs.filter((l) => !l.market.provenance.depth_observed);
+  if (assumedDepth.length > 0) {
+    const venuesWithout = [...new Set(assumedDepth.map((l) => l.market.venue))].sort();
+    warnings.push(
+      `${venuesWithout.join(', ')} publishes no order-book depth. The capacity shown is an ` +
+        `assumed stake limit, not observed liquidity, and slippage on those legs is not ` +
+        `modelled — the executable edge is an upper bound.`,
+    );
+  }
+
+  const repairedLegs = legs.filter((l) => l.market.provenance.repaired);
+  if (repairedLegs.length > 0) {
+    warnings.push(
+      `Repaired source data on ${repairedLegs.length} leg(s): ` +
+        `${[...new Set(repairedLegs.flatMap((l) => l.market.provenance.repairs))].join('; ')}.`,
+    );
+  }
+
+  const captured = legs
+    .map((l) => l.market.provenance.captured_at)
+    .filter((c): c is string => c !== null)
+    .sort();
+  if (captured.length > 0) {
+    const age = now.getTime() - Date.parse(captured[0]!);
+    if (Number.isFinite(age)) {
+      warnings.push(
+        `Manually captured prices are ${(age / 60_000).toFixed(0)} minutes old and do not ` +
+          `update on their own.`,
+      );
+    }
+  }
   if (requiresManualReview(matchConfidence)) {
     warnings.push(
       `Match confidence ${(matchConfidence * 100).toFixed(0)}% is in the manual-review band; ` +
@@ -245,6 +291,11 @@ function buildOpportunity(input: BuildInput): Opportunity | null {
       describeReserve(settlementDiff, matchConfidence),
       feeNotes,
       grossEdge,
+      assumedDepth.length > 0
+        ? 'Not modelled: at least one venue publishes no order book to walk'
+        : costs.slippage > 0
+          ? `Walking the book for ${costs.units.toFixed(2)} units lifts the average price`
+          : 'Top level absorbs the full size',
     ),
     warnings,
     settlement_diff: settlementDiff,
@@ -483,15 +534,24 @@ export function detectCrossVenue(
 }
 
 /**
- * A quote's mid only estimates a probability when the market is quoted
- * tightly enough for the midpoint to mean something. Returns the spread, or
- * null when the quote is one-sided or too wide to be usable.
+ * How wide the two-way market is, or null when the quote is too wide — or too
+ * one-sided — for its implied probability to mean anything.
+ *
+ * Two venue shapes, one question. An exchange quotes a bid and an ask, and
+ * the midpoint is only informative when they are close. A sportsbook quotes
+ * both outcomes with a margin baked in and no bid at all, so its width is the
+ * overround. Both are the cost of a round trip; only the scale differs.
  */
-function usableSpread(quote: Quote, maxSpread: DeciCents): DeciCents | null {
-  if (quote.bid === null || quote.ask === null) return null;
-  const spread = quote.ask - quote.bid;
-  if (spread < 0 || spread > maxSpread) return null;
-  return spread;
+function quoteWidth(quote: Quote, opts: ResolvedOptions): DeciCents | null {
+  if (quote.bid !== null && quote.ask !== null) {
+    const spread = quote.ask - quote.bid;
+    return spread >= 0 && spread <= opts.max_spread_for_divergence ? spread : null;
+  }
+  if (quote.ask !== null && quote.no_ask !== null) {
+    const overround = quote.ask + quote.no_ask - ONE_DOLLAR;
+    return overround >= 0 && overround <= opts.max_overround_for_divergence ? overround : null;
+  }
+  return null;
 }
 
 /**
@@ -515,10 +575,7 @@ export function detectRelativeValue(
   if (leftProb === null || rightProb === null) return null;
 
   // Two wide books can "disagree" purely because their midpoints are noise.
-  if (
-    usableSpread(left.quote, opts.max_spread_for_divergence) === null ||
-    usableSpread(right.quote, opts.max_spread_for_divergence) === null
-  ) {
+  if (quoteWidth(left.quote, opts) === null || quoteWidth(right.quote, opts) === null) {
     return null;
   }
 
@@ -573,9 +630,7 @@ export function detectBasketDivergence(
   // Every outcome must be quoted tightly enough for its mid to be a
   // probability. One 1c/99c market in the basket is enough to manufacture an
   // arbitrarily large "overround" out of nothing but spread width.
-  const spreads = snapshot.markets.map((m) =>
-    usableSpread(m.quote, opts.max_spread_for_divergence),
-  );
+  const spreads = snapshot.markets.map((m) => quoteWidth(m.quote, opts));
   if (spreads.some((s) => s === null)) return null;
   const widestSpread = Math.max(...(spreads as number[]));
 

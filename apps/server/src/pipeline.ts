@@ -10,7 +10,7 @@ import {
   type Quote,
   type ScanResult,
 } from '@arbterminal/core';
-import { feeBookFor, type VenueAdapter } from '@arbterminal/adapters';
+import { ManualCsvAdapter, feeBookFor, type VenueAdapter } from '@arbterminal/adapters';
 import type { Store } from './db.js';
 
 /**
@@ -75,6 +75,11 @@ export class Pipeline {
       counts: countOpportunities(this.opportunities),
       quote_log_rows: this.store.count('quote_log'),
       running: this.running,
+      // Import diagnostics belong in the status payload, not a log line: a
+      // rejected row is something the user has to see and fix.
+      imports: this.adapters
+        .filter((a): a is ManualCsvAdapter => a instanceof ManualCsvAdapter)
+        .map((a) => ({ venue: a.venue, display_name: a.display_name, ...a.diagnostics })),
     };
   }
 
@@ -163,8 +168,7 @@ export class Pipeline {
 
     // Cross-venue pairings. With a single venue registered this is empty by
     // construction, since a match requires two distinct venues.
-    this.matches =
-      this.adapters.length > 1 ? matchMarkets(this.markets()) : [];
+    this.matches = this.adapters.length > 1 ? matchMarkets(this.markets()) : [];
 
     this.latest = scan(
       { events: snapshots, matches: this.matches },

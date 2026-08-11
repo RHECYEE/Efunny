@@ -1,6 +1,8 @@
 import { spawn } from 'node:child_process';
 import { isSea } from 'node:sea';
-import { KalshiAdapter } from '@arbterminal/adapters';
+import { existsSync } from 'node:fs';
+import { KalshiAdapter, ManualCsvAdapter } from '@arbterminal/adapters';
+import type { VenueAdapter } from '@arbterminal/adapters';
 import { buildApi } from './api.js';
 import { config } from './config.js';
 import { Store } from './db.js';
@@ -14,12 +16,28 @@ import { registerWeb } from './web.js';
  * array plus a directory under packages/adapters — the pipeline, matcher and
  * arb engine do not change.
  */
-const adapters = [
+const adapters: VenueAdapter[] = [
   new KalshiAdapter({
     market_limit: config.market_limit,
     depth_fetch_limit: config.depth_fetch_limit,
+    series_tickers: config.kalshi_series,
   }),
 ];
+
+// A folder of captured prices becomes a second venue. Books like DraftKings
+// publish no usable API and this project does not scrape, so a manual capture
+// is the honest way to reach cross-venue comparison — with every limitation
+// of that route recorded on each record rather than hidden.
+if (existsSync(config.manual_imports_directory)) {
+  adapters.push(
+    new ManualCsvAdapter({
+      venue: config.manual_venue,
+      display_name: config.manual_display_name,
+      directory: config.manual_imports_directory,
+      assumed_stake_limit_dollars: config.manual_stake_limit_dollars,
+    }),
+  );
+}
 
 const store = new Store(config.database_path);
 const pipeline = new Pipeline(adapters, store, {

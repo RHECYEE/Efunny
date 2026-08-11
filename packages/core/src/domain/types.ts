@@ -93,6 +93,52 @@ export interface SettlementSpec {
   overtime_rules: string;
 }
 
+/**
+ * Where a record came from and what was done to it before it got here.
+ *
+ * Not every venue is an API. A manually captured price is still usable, but it
+ * carries risks an API response does not — transcription error, no order book,
+ * a single snapshot — and those risks have to travel with the record rather
+ * than being forgotten at the ingestion boundary.
+ */
+export interface Provenance {
+  source: 'VENUE_API' | 'MANUAL_IMPORT';
+  /** Human description of where this came from, shown on the card. */
+  origin: string;
+  /** Whether the record was altered before ingestion (e.g. OCR repair). */
+  repaired: boolean;
+  /** Specific repairs applied, for display. Empty when untouched. */
+  repairs: string[];
+  /**
+   * Hard cap on any match confidence involving this market, 0..1.
+   *
+   * A repaired record can never be presented as mechanically identical to
+   * anything, however well it scores — the text it was matched on is not
+   * exactly the text the venue published.
+   */
+  confidence_ceiling: number;
+  /**
+   * Whether the venue published real order-book depth. False means any
+   * capacity figure is an assumption and slippage cannot be modelled.
+   */
+  depth_observed: boolean;
+  /** When the underlying price was observed, if different from the quote. */
+  captured_at: string | null;
+}
+
+/** Provenance for a record read straight from a venue's own API. */
+export function venueApiProvenance(venue: string): Provenance {
+  return {
+    source: 'VENUE_API',
+    origin: `${venue} public API`,
+    repaired: false,
+    repairs: [],
+    confidence_ceiling: 1,
+    depth_observed: true,
+    captured_at: null,
+  };
+}
+
 export interface Market {
   market_id: string;
   event_id: string;
@@ -120,6 +166,7 @@ export interface Market {
    * sportsbook leg pays stake + profit and is modelled in `hedge.ts`.
    */
   payout_per_contract: DeciCents;
+  provenance: Provenance;
 }
 
 /* ------------------------------------------------------------------ *

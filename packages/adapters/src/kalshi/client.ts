@@ -182,8 +182,34 @@ export class KalshiClient {
   async listEvents(options: {
     limit?: number;
     status?: string;
+    /**
+     * Restrict the sweep to specific series. Kalshi lists roughly 90,000 open
+     * markets across 50+ pages, so a full crawl costs about half a minute and
+     * cannot run on a short poll interval. Naming the series turns that into
+     * a single request.
+     */
+    series_tickers?: string[];
     signal?: AbortSignal;
   } = {}): Promise<KalshiEvent[]> {
+    const series = options.series_tickers ?? [];
+    if (series.length > 0) {
+      const results: KalshiEvent[] = [];
+      for (const ticker of series) {
+        const page = await this.request<{ events?: KalshiEvent[] }>(
+          '/events',
+          {
+            limit: 200,
+            status: options.status ?? 'open',
+            with_nested_markets: true,
+            series_ticker: ticker,
+          },
+          options.signal,
+        );
+        results.push(...(page.events ?? []));
+      }
+      return results;
+    }
+
     const target = options.limit ?? 200;
     const collected: KalshiEvent[] = [];
     let cursor: string | undefined;

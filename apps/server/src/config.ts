@@ -52,4 +52,23 @@ export const config = {
   history_retention_days: num('HISTORY_RETENTION_DAYS', 14),
   /** Set to "1" to skip the live poller, e.g. in tests. */
   disable_poller: process.env.DISABLE_POLLER === '1',
+
+  /**
+   * Folder of manually captured sportsbook CSVs. Every `.csv` in it is
+   * imported as a venue named by `MANUAL_VENUE`. Absent folder, no venue.
+   */
+  manual_imports_directory: process.env.MANUAL_IMPORTS_DIR ?? 'imports/draftkings',
+  manual_venue: process.env.MANUAL_VENUE ?? 'draftkings',
+  manual_display_name: process.env.MANUAL_VENUE_NAME ?? 'DraftKings',
+  /** Stake the book would plausibly accept on one leg. Assumed, not observed. */
+  manual_stake_limit_dollars: num('MANUAL_STAKE_LIMIT', 500),
+  /**
+   * Kalshi series to sweep. A full crawl is ~90,000 markets and half a
+   * minute, so cross-venue work names the series that a second venue also
+   * prices. Empty means crawl broadly up to MARKET_LIMIT.
+   */
+  kalshi_series: (process.env.KALSHI_SERIES ?? '')
+    .split(',')
+    .map((s) => s.trim())
+    .filter((s) => s.length > 0),
 } as const;

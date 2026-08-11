@@ -11,6 +11,23 @@ export * from './kalshi/client.js';
 export * from './kalshi/fees.js';
 export * from './kalshi/normalize.js';
 export * from './kalshi/adapter.js';
+export * from './manual/csv.js';
+export * from './manual/repair.js';
+export * from './manual/adapter.js';
+// `toMarket`, `toQuote` and friends exist in both normalizers by design —
+// each adapter owns its own mapping — so the manual ones are renamed rather
+// than star-exported into a collision.
+export {
+  interpret as interpretManualRow,
+  parseDeadline as parseManualDeadline,
+  categoryOf as manualCategoryOf,
+  toMarket as manualToMarket,
+  toEvent as manualToEvent,
+  toQuote as manualToQuote,
+  toBook as manualToBook,
+  type Interpretation as ManualInterpretation,
+  type NormalizeContext as ManualNormalizeContext,
+} from './manual/normalize.js';
 
 import { FeeBook } from '@arbterminal/core';
 import { AdapterRegistry, type VenueAdapter } from './types.js';

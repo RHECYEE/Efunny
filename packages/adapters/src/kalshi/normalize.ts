@@ -21,6 +21,7 @@ import {
   type Quote,
   type SettlementSpec,
 } from '@arbterminal/core';
+import { venueApiProvenance } from '@arbterminal/core';
 import type { KalshiEvent, KalshiMarket, KalshiOrderBookSide } from './client.js';
 
 export const KALSHI_VENUE = 'kalshi';
@@ -294,6 +295,7 @@ export function toMarket(rawEvent: KalshiEvent, raw: KalshiMarket): Market {
     close_time: raw.close_time ?? raw.expiration_time ?? null,
     // Kalshi event contracts settle at exactly $1.00.
     payout_per_contract: 1000,
+    provenance: venueApiProvenance(KALSHI_VENUE),
   };
 }
 

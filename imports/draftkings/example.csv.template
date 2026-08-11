@@ -1,0 +1,3 @@
+captured_at,source,section,market,outcome,yes_odds,no_odds,observations,settlement_source,settlement_rules
+2026-08-11T21:50:57Z,manual capture,Bitcoin,When will Bitcoin cross $100k again?,Before January 2027,+400,-1011,4,CF Bitcoin Real-Time Index,Resolves Yes if the Bitcoin spot price is above $100000 before January 1 2027.
+2026-08-11T21:50:57Z,manual capture,Bitcoin,Bitcoin Price at the End of 2026,"65,000 to 69,999.99",+400,-900,5,,

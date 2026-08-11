@@ -14,7 +14,7 @@ repository, and the venue client only reads public market-data endpoints.
 | Stage | Scope | State |
 | --- | --- | --- |
 | 1 | Kalshi-only foundation: live ingestion, normalized binary markets, order-book depth, single-venue arbitrage, quote logging, fee/slippage-adjusted edge, paper trading | **Done** |
-| 2 | First cross-venue integration via a licensed odds provider; moneyline-only sports matching | Engine-ready, blocked on a data licence — see [Stage 2](#stage-2-what-is-and-is-not-done) |
+| 2 | First cross-venue integration; cross-venue matching and arbitrage | **Working via manual price capture** — a licensed odds feed is still unavailable, see [Stage 2](#stage-2-cross-venue-without-a-data-licence) |
 | 3 | Settlement-diff depth, semantic matching, alerting, spreads and totals | Settlement diffing is already first-class; the rest not started |
 | 4 | Backtesting, opportunity statistics, arb-quality scoring | Quote log is recording the history it needs; analytics not started |
 
@@ -59,7 +59,7 @@ Then open <http://localhost:5173>. No credentials are needed — every Kalshi en
 this uses is public and unauthenticated.
 
 ```bash
-npm test             # 92 tests, no network, no model
+npm test             # 119 tests, no network, no model
 npm run typecheck
 npm run package      # build the executable for the current platform
 ```
@@ -89,7 +89,7 @@ the math.
 **A dependency-free core package.** `@arbterminal/core` imports nothing. It has no
 network access, no database, no framework and no LLM client, which is what makes
 "the arb math is testable without live data" structurally true rather than a
-convention. 92 tests run in under a second.
+convention. 119 tests run in under a second.
 
 **Persistence with no native module.** `node:sqlite` ships with Node 22, so the
 quote log needs no build step. Fastify serves the API; Vite and React serve the UI.
@@ -121,6 +121,7 @@ packages/core/         no dependencies, no I/O, no LLM
   portfolio/           cart aggregation, filters, honesty statistics
 packages/adapters/     the only place a venue is named
   kalshi/              client, wire-format mapping, fee schedule
+  manual/              CSV import: parsing, validation, OCR repair, odds mapping
 apps/server/           poller, SQLite quote log, read-only HTTP API
 apps/web/              multi-panel terminal UI
 ```
@@ -286,26 +287,86 @@ cost* moved, since those have no guaranteed payout to subtract from.
 
 ---
 
-## Stage 2: what is and is not done
+## Stage 2: cross-venue without a data licence
 
-The sportsbook↔prediction-market stake solver is implemented and tested
-(`packages/core/src/arb/hedge.ts`). Given N contracts at price p and decimal odds D,
-the balanced stake is N/D, because a sportsbook returns stake *plus* profit while an
-event contract pays a flat $1.00. Commission on winnings and rounding to the cent are
-both handled, and the guarantee reported is always the worse of the two branches.
+Neither DraftKings nor bet365 offers a public API, and this repository
+contains no scraper. The route that does work is importing prices **you**
+captured, as CSV — see [`imports/README.md`](imports/README.md) for the format.
 
-The cross-venue detector is likewise implemented and tested against two synthetic
-venues.
+That makes cross-venue matching real today. On a live run against a captured
+DraftKings board, the pipeline paired:
 
-**What is missing is a data licence, not code.** Neither DraftKings nor bet365 offers
-a public API, and this repository deliberately contains no scraper. Stage 2 needs a
-licensed third-party odds provider; the work is writing one adapter against it.
-Treat that as an external dependency and a commercial risk, not an engineering task.
+```
+Kalshi       How high will Bitcoin get in 2026?  ->  Above $99,999.99   12.00c ask
+DraftKings   When will Bitcoin cross $100k again? ->  Before Jan 2027   +400 (18.02c de-vigged)
+```
 
-Until then the Sports tab shows single-venue Kalshi sports contracts only, and says
-so.
+No arbitrage — Kalshi YES + DK NO is 103c, DK YES + Kalshi NO is 109c, both
+above the dollar they would pay — but a six-point disagreement about the same
+fact.
 
----
+Three things had to be true for that pairing to be found at all:
+
+- **Thresholds compare with a relative tolerance.** `$99,999.99` and
+  `$100,000` are the same strike a cent apart. The epsilon is relative, never
+  absolute: a fixed tolerance wide enough for a six-figure crypto strike would
+  happily equate a -3.5 spread with a -4.5 one.
+- **Candidates are bucketed on structure, not on the event id.** Two venues
+  describe one contract in different words and land on different canonical
+  ids, which is precisely the case cross-venue matching exists for. Bucketing
+  on tier, market type, comparison and threshold-to-four-significant-figures
+  finds them; the cost is |exchange| x |book|, and the book side is small.
+- **Matching structure counts as evidence.** Where two markets state the same
+  comparison against the same number at the same deadline, that corroborates
+  identity in a way token overlap cannot — those two titles share almost no
+  words. It sets a floor of 0.85, deliberately below the almost-certain band,
+  because matching structure says they trigger on the same fact and *not* that
+  they settle the same way.
+
+The pair above scores **0.56** and is therefore never surfaced, because
+DraftKings' capture carries no settlement text and silence is treated as a
+material gap. Adding two columns fixes that:
+
+| Capture includes | Confidence | Result |
+| --- | --- | --- |
+| odds only | 0.67 | rejected |
+| `+ settlement_source` | 0.76 | rejected |
+| `+ settlement_rules` | **0.85** | review tier, arb-eligible |
+
+### What a manual capture cannot give you
+
+All three are recorded as provenance on every record, and shown on the card:
+
+- **No order book.** One price, no size. Capacity comes from an assumed stake
+  limit and is labelled as assumed; slippage on those legs is reported as
+  unmodelled rather than as zero, because zero slippage and unmeasurable
+  slippage are not the same claim.
+- **One snapshot.** The file does not update.
+- **Transcription error.** `$100k` read as `$1OOk` is repaired
+  deterministically inside currency tokens, the repair travels with the
+  record, and a repaired record is capped at 94% confidence — it can never be
+  presented as mechanically identical to anything.
+
+Feeding the real capture through: 11 rows imported, 13 rejected with a stated
+reason each (four with no market name, one with an odds value in the outcome
+column, three unverifiable name repairs, one locked price). Three raw
+spellings — `$100k`, `$10Ok`, `$1OOk` — were reported as one market rather
+than silently merged.
+
+### The exchange side does not scale to a full crawl
+
+Kalshi lists about **90,000 open markets** across 50+ pages; sweeping all of
+them takes roughly 27 seconds, which no short poll interval can absorb. Set
+`KALSHI_SERIES` to the series a second venue also prices and the cycle drops
+to about two seconds.
+
+### The sportsbook hedge solver
+
+Implemented and tested (`packages/core/src/arb/hedge.ts`). Given N contracts at
+price p against decimal odds D, the balanced stake is N/D — a sportsbook
+returns stake *plus* profit while an event contract pays a flat $1.00.
+Commission on winnings and rounding to the cent are both handled, and the
+guarantee reported is always the worse of the two branches.
 
 ## API
 
