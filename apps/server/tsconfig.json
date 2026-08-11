@@ -1,9 +1,15 @@
 {
   "extends": "../../tsconfig.base.json",
   "compilerOptions": {
+    "types": [
+      "node"
+    ],
     "paths": {
       "@arbterminal/core": [
-        "../core/src/index.ts"
+        "../../packages/core/src/index.ts"
+      ],
+      "@arbterminal/adapters": [
+        "../../packages/adapters/src/index.ts"
       ]
     },
     "noEmit": true

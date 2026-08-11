@@ -1,0 +1,28 @@
+name: CI
+
+on:
+  push:
+    branches: ['**']
+  pull_request:
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          # node:sqlite is used for the quote log, so the runtime must ship it.
+          node-version: '22'
+          cache: npm
+
+      - run: npm ci
+
+      # The whole suite runs offline: no venue is contacted and no model is
+      # called, so CI cannot go red because a market moved.
+      - run: npm test
+
+      - run: npm run typecheck
+
+      - run: npm run build

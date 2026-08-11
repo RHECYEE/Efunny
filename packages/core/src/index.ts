@@ -26,3 +26,4 @@ export * from './arb/engine.js';
 
 export * from './paper/simulator.js';
 export * from './portfolio/cart.js';
+export * from './portfolio/filters.js';

@@ -137,6 +137,88 @@ describe('paper trade execution', () => {
   });
 });
 
+describe('paper trading an unhedged relative-value position', () => {
+  const outcomes = ['A_WINS', 'B_WINS', 'C_WINS'];
+  const rvMarkets = outcomes.map((outcome, index) =>
+    market({ venue: 'venue_a', venue_market_id: `RV-${index}`, outcome, outcome_label: outcome }),
+  );
+  /** Mids sum to 1.23 across an exhaustive set, but nothing is hedgeable. */
+  const rvBook = book([[500, 50]], [[680, 50]]);
+
+  function detectRelativeValue() {
+    const result = scan(
+      {
+        events: [
+          snapshot(
+            { canonical_outcome_set: outcomes, exhaustive: true },
+            rvMarkets.map((m) => ({ market: m, book: rvBook })),
+          ),
+        ],
+      },
+      { fees: zeroFees('venue_a'), now: frozenNow },
+    );
+    const opportunity = result.opportunities.find((o) => o.type === 'RELATIVE_VALUE')!;
+    expect(opportunity).toBeDefined();
+    return opportunity;
+  }
+
+  it('does not treat a single cheap leg as if it paid a guaranteed dollar', () => {
+    const opportunity = detectRelativeValue();
+    const legMarketId = opportunity.legs[0]!.market_id;
+
+    const trade = executePaperTrade({
+      opportunity,
+      detection_quotes: [quote(legMarketId, rvBook)],
+      execution_quotes: [quote(legMarketId, rvBook)],
+      bankroll: 25_000,
+      fees: zeroFees('venue_a'),
+      now: frozenNow,
+    });
+
+    // The displayed number is a probability divergence, not a payout gap.
+    // Reading it as ($1.00 - 50c) would report a ~50c edge that does not exist.
+    expect(trade.displayed_edge).toBe(opportunity.net_edge);
+    expect(trade.actually_fillable_edge).toBe(trade.displayed_edge);
+    expect(trade.edge_decay).toBe(0);
+    expect(trade.actually_fillable_edge).toBeLessThan(300);
+  });
+
+  it('never reports an unhedged position as hedged, however cleanly it fills', () => {
+    const opportunity = detectRelativeValue();
+    const legMarketId = opportunity.legs[0]!.market_id;
+    const trade = executePaperTrade({
+      opportunity,
+      detection_quotes: [quote(legMarketId, rvBook)],
+      execution_quotes: [quote(legMarketId, rvBook)],
+      bankroll: 25_000,
+      fees: zeroFees('venue_a'),
+      now: frozenNow,
+    });
+
+    expect(trade.units_executed).toBeGreaterThan(0);
+    expect(trade.fully_hedged).toBe(false);
+    expect(trade.guaranteed_payout).toBe(0);
+  });
+
+  it('charges the edge only for how far the entry cost moved', () => {
+    const opportunity = detectRelativeValue();
+    const legMarketId = opportunity.legs[0]!.market_id;
+
+    // The entry ask ticked up 2c; nothing about the divergence changed.
+    const trade = executePaperTrade({
+      opportunity,
+      detection_quotes: [quote(legMarketId, rvBook)],
+      execution_quotes: [quote(legMarketId, book([[520, 50]], [[680, 50]]))],
+      bankroll: 25_000,
+      fees: zeroFees('venue_a'),
+      now: frozenNow,
+    });
+
+    expect(trade.edge_decay).toBe(20);
+    expect(trade.actually_fillable_edge).toBe(trade.displayed_edge - 20);
+  });
+});
+
 describe('paper trade settlement', () => {
   it('pays the same either way on a fully hedged position', () => {
     const { opportunity, detectionQuotes } = detect();

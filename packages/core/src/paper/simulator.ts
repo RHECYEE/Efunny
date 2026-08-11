@@ -154,16 +154,24 @@ export function executePaperTrade(input: ExecuteInput): PaperTrade {
   // A hedge is only a hedge if every leg fills. Scale the whole position down
   // to the weakest leg rather than reporting a broken hedge as complete.
   const unitsExecuted = Math.max(0, unitsExecutable);
-  const fullyHedged = unitsExecuted >= requestedUnits - 1e-6 && requestedUnits > 0;
+  const filledInFull = unitsExecuted >= requestedUnits - 1e-6 && requestedUnits > 0;
+  // Filling every leg only amounts to a hedge if the position was one. A
+  // relative-value card is a directional view however cleanly it fills.
+  const hedgeable =
+    opportunity.type === 'GUARANTEED_ARB' || opportunity.type === 'CROSS_VENUE_ARB';
+  const fullyHedged = filledInFull && hedgeable;
 
   let capitalDeployed = 0;
   let fillableCostPerUnit = 0;
+  // What one unit cost at the prices the card displayed.
+  let displayedCostPerUnit = 0;
   for (const fill of fills) {
     const cpu = perUnit.get(`${fill.market_id}:${fill.side}`) ?? 0;
     fill.held_contracts = unitsExecuted * cpu;
     capitalDeployed += fill.fill_vwap * fill.held_contracts;
     if (fill.held_contracts > 0) capitalDeployed += fill.fees;
     fillableCostPerUnit += fill.fill_vwap * cpu;
+    displayedCostPerUnit += fill.displayed_price * cpu;
   }
 
   const reserve = settlementMismatchReserve(
@@ -174,9 +182,18 @@ export function executePaperTrade(input: ExecuteInput): PaperTrade {
     ? fills.reduce((sum, f) => sum + f.fees, 0) / unitsExecuted
     : 0;
 
+  // The fillable edge has to be derived the same way the displayed edge was.
+  // Subtracting the entry cost from a $1 payout is only valid for a hedged
+  // position; a RELATIVE_VALUE card has no guaranteed payout, and treating
+  // its single cheap leg as if it paid a dollar would report a ~97c "edge".
+  //
+  // Working from how far the *entry cost moved* covers both cases. For a
+  // hedged position it reduces to the same arithmetic, since its gross edge
+  // is itself ($1.00 - displayed cost).
+  const costDrift = fillableCostPerUnit - displayedCostPerUnit;
   const fillableEdge =
     unitsExecuted > 0
-      ? ONE_DOLLAR - fillableCostPerUnit - feePerUnit - reserve
+      ? opportunity.gross_edge - costDrift - feePerUnit - reserve
       : // Nothing filled: none of the displayed edge was obtainable.
         0;
 
@@ -196,7 +213,7 @@ export function executePaperTrade(input: ExecuteInput): PaperTrade {
     displayed_edge: displayedEdge,
     actually_fillable_edge: roundHalfAway(fillableEdge),
     edge_decay: decay,
-    decay_explanation: explainDecay(fills, decay, requestedUnits, unitsExecuted),
+    decay_explanation: explainDecay(fills, decay, requestedUnits, unitsExecuted, filledInFull),
     fully_hedged: fullyHedged,
     units_executed: unitsExecuted,
     capital_deployed: roundHalfAway(capitalDeployed),
@@ -218,6 +235,7 @@ function explainDecay(
   decay: DeciCents,
   requestedUnits: number,
   executedUnits: number,
+  filledInFull: boolean,
 ): string {
   const causes = fills
     .filter((f) => f.shortfall_reason !== null)
@@ -230,10 +248,20 @@ function explainDecay(
     );
   }
   if (causes.length === 0) {
-    return decay === 0
-      ? 'The book was unchanged between detection and execution; the displayed edge was fully obtainable.'
-      : `Every leg filled as displayed; the ${(Math.abs(decay) / 10).toFixed(2)}c difference is ` +
-          `rounding on the scaled position size.`;
+    if (decay === 0) {
+      return 'The book was unchanged between detection and execution; the displayed edge was fully obtainable.';
+    }
+    const magnitude = `${(Math.abs(decay) / 10).toFixed(2)}c`;
+    if (!filledInFull) {
+      return (
+        `Every leg filled at or better than its displayed price, but the position was sized ` +
+        `down to what the bankroll and book supported, moving the per-unit edge by ${magnitude}.`
+      );
+    }
+    return (
+      `Every leg filled at or better than its displayed price; the ${magnitude} difference comes ` +
+      `from fees and rounding on the executed size.`
+    );
   }
   const sizeNote =
     executedUnits < requestedUnits - 1e-6

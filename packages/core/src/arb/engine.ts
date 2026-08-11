@@ -543,7 +543,16 @@ export function detectBasketDivergence(
   const probs = snapshot.markets.map((m) => m.quote.implied_probability);
   if (probs.some((p) => p === null)) return null;
   const sum = (probs as number[]).reduce((a, b) => a + b, 0);
-  const divergence = Math.abs(1 - sum) * ONE_DOLLAR;
+
+  // Direction matters, and only one direction is informative when the
+  // outcome set is not exhaustive. Mutually exclusive outcomes must sum to at
+  // most 1, so an *overround* is always an anomaly — but an underround is the
+  // expected state whenever some unlisted outcome can also occur. Flagging it
+  // would report every far-dated multi-candidate market as mispriced.
+  const overround = sum - 1;
+  const divergence = snapshot.event.exhaustive
+    ? Math.abs(overround) * ONE_DOLLAR
+    : Math.max(0, overround) * ONE_DOLLAR;
   if (divergence < opts.relative_value_threshold) return null;
 
   // Underround (sum < 1) points at the YES basket; overround at the NO basket.
@@ -572,8 +581,12 @@ export function detectBasketDivergence(
     opts,
     grossEdgeOverride: roundHalfAway(divergence),
     extraWarnings: [
-      `Mid prices across the ${snapshot.markets.length} outcomes sum to ` +
-        `${sum.toFixed(4)} rather than 1.0000, but the ask side is too wide to lock it in.`,
+      `Mid prices across the ${snapshot.markets.length} mutually exclusive outcomes sum to ` +
+        `${sum.toFixed(4)}, ${
+          overround > 0
+            ? 'above the 1.0000 they can jointly be worth'
+            : 'below the 1.0000 this exhaustive set must be worth'
+        }, but the ask side is too wide to lock the difference in.`,
     ],
   });
 }
