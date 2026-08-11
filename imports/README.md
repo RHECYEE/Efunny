@@ -17,32 +17,51 @@ at it with `MANUAL_IMPORTS_DIR`, `MANUAL_VENUE` and `MANUAL_VENUE_NAME`.
 | `no_odds` | no | American odds for the other side. Without it there is no way to strip the vig, so no probability is derived. |
 | `captured_at` | recommended | ISO timestamp. Drives the staleness warning. |
 | `observations` | recommended | How many times the row was seen. A repaired market name seen once is rejected as unverifiable. |
-| `settlement_source` | **strongly recommended** | See below. |
-| `settlement_rules` | **strongly recommended** | See below. |
-| `void_rules` | no | Void / cancellation handling. |
+| `settlement_source` | no | Only if the venue shows it per market, which most do not. Use `rules.json` instead. |
+| `settlement_rules` | no | As above. |
+| `void_rules` | no | As above. |
 | `section` | no | Board section. Recorded, not used as settlement text. |
 | `source` | no | Where the capture came from. Shown as provenance. |
 
 Extra columns are ignored.
 
-## Why the settlement columns matter more than they look
+## Settlement rules go in `rules.json`, not in the CSV
 
-A match is only allowed to be shown as arbitrage at 80% confidence or above,
-and the settlement comparison is what gets it there. An undocumented rule is
-treated as a **material** gap rather than as agreement, because silence is not
-evidence of sameness.
+Sportsbooks do not put settlement terms on the market card. They publish one
+House Rules document per product, and that is what you transcribe — once, not
+on every capture. Copy `rules.json.template` to `rules.json` and fill in what
+you can actually find, at whatever level the venue writes it:
 
-Measured on a real capture, pairing DraftKings' `When will Bitcoin cross $100k
-again? / Before January 2027` with Kalshi's `Above $99,999.99`:
+```json
+{
+  "source_document": "DraftKings House Rules, retrieved 2026-08-11",
+  "venue":    { "settlement_source": "..." },
+  "sections": { "Bitcoin": { "settlement_source": "..." } },
+  "markets":  { "When will Bitcoin cross $100k again?": { "settlement_source": "..." } }
+}
+```
 
-| Capture includes | Confidence | Result |
+Most specific wins. The file is re-read every cycle, so editing it takes
+effect without a restart. Leave a field out rather than guessing it — an
+invented rule is worse than an absent one, because it reads as documentation
+while diffing against the other venue's real wording.
+
+### It will not always help, and that is the point
+
+Pairing DraftKings' `When will Bitcoin cross $100k again?` with Kalshi's
+`Above $99,999.99`:
+
+| What the venue's rules say | Confidence | Result |
 | --- | --- | --- |
-| odds only | 0.67 | rejected, never surfaced |
-| `+ settlement_source` | 0.76 | still rejected |
-| `+ settlement_rules` | **0.85** | review tier, surfaced |
+| nothing findable | 0.67 | rejected — rules unknown |
+| a **different** price index | 0.55 | rejected — a known difference |
+| the **same** price index | **0.85** | review tier, surfaced |
 
-Two extra columns move a pair from unusable to usable. Nothing else in the
-capture comes close to that.
+For a threshold contract the settlement index *is* the contract. Two indices
+that agree almost always can still land on opposite sides of $100,000 on the
+day — which is exactly when the hedge matters. Finding out the venues differ
+is a better outcome than a confident-looking number built on the assumption
+they do not.
 
 ## What a capture cannot give you
 

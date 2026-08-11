@@ -124,6 +124,15 @@ export interface Provenance {
   depth_observed: boolean;
   /** When the underlying price was observed, if different from the quote. */
   captured_at: string | null;
+  /**
+   * How specifically the settlement rules attached to this market were
+   * written. A venue that documents rules for a whole product rather than per
+   * market yields a weaker claim about any one contract, and that shows on
+   * the card rather than being flattened into the confidence number alone.
+   */
+  settlement_rules_scope?: 'MARKET' | 'SECTION' | 'VENUE' | 'NONE';
+  /** Human note about where the settlement text came from. */
+  settlement_rules_note?: string;
 }
 
 /** Provenance for a record read straight from a venue's own API. */
@@ -309,6 +318,14 @@ export interface SettlementFieldDiff {
   /** Token-level diff so the UI can render the wording gap, not just a score. */
   left_only_terms: string[];
   right_only_terms: string[];
+  /**
+   * True when both venues documented this rule and the two statements
+   * disagree, as opposed to one side simply saying nothing.
+   *
+   * The distinction is not cosmetic. Silence is an unknown that might resolve
+   * either way; a stated conflict is a known difference, and it costs more.
+   */
+  conflict: boolean;
 }
 
 export interface SettlementDiff {

@@ -13,6 +13,7 @@ export * from './kalshi/normalize.js';
 export * from './kalshi/adapter.js';
 export * from './manual/csv.js';
 export * from './manual/repair.js';
+export * from './manual/rules.js';
 export * from './manual/adapter.js';
 // `toMarket`, `toQuote` and friends exist in both normalizers by design —
 // each adapter owns its own mapping — so the manual ones are renamed rather

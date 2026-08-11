@@ -1,0 +1,16 @@
+{
+  "_comment": "Copy to rules.json and replace every value with text you actually found in the venue's published rules. Leave a field out entirely rather than guessing it — an invented rule is worse than an absent one, because it looks like documentation while diffing against another venue's real wording.",
+  "source_document": "e.g. DraftKings House Rules, retrieved 2026-08-11",
+  "venue": {
+    "settlement_source": "",
+    "settlement_rules": "",
+    "void_rules": ""
+  },
+  "sections": {
+    "Bitcoin": {
+      "settlement_source": "the exact index or price source the venue names, if it names one",
+      "settlement_rules": "",
+      "void_rules": ""
+    }
+  }
+}

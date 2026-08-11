@@ -11,6 +11,7 @@ import type { AdapterCapabilities, FetchOptions, VenueAdapter } from '../types.j
 import { parseCsv } from './csv.js';
 import { validateRows, type ImportResult, type RepairOptions } from './repair.js';
 import { toEvent, toMarket, toQuote, type NormalizeContext } from './normalize.js';
+import { loadHouseRules, type HouseRules } from './rules.js';
 
 /**
  * An adapter over manually captured price files.
@@ -45,6 +46,12 @@ export interface ImportDiagnostics extends ImportResult {
   files: string[];
   imported: number;
   scanned_at: string;
+  /** Whether a house-rules file was found, and what it covers. */
+  house_rules: {
+    present: boolean;
+    source_document: string;
+    scopes: Record<string, number>;
+  };
 }
 
 export class ManualCsvAdapter implements VenueAdapter {
@@ -113,13 +120,22 @@ export class ManualCsvAdapter implements VenueAdapter {
     const result = validateRows(rawRows, this.options);
     this.quotes = new Map();
 
+    // Sportsbooks document settlement once, for a whole product, not per
+    // market. Reload the file each cycle so editing it takes effect without a
+    // restart.
+    const houseRules: HouseRules | null = loadHouseRules(this.options.directory);
+    const context: NormalizeContext = { ...this.context, house_rules: houseRules };
+    const scopes: Record<string, number> = {};
+
     // Each captured row stands alone: nothing in the file establishes that a
     // group of rows is an exhaustive or mutually exclusive set, so they are
     // never bundled into a basket the engine could try to arb.
     const snapshots: EventSnapshot[] = [];
     for (const row of result.rows) {
-      const market = toMarket(row, this.context);
-      const quote = toQuote(row, market, this.context);
+      const market = toMarket(row, context);
+      const quote = toQuote(row, market, context);
+      const scope = market.provenance.settlement_rules_scope ?? 'NONE';
+      scopes[scope] = (scopes[scope] ?? 0) + 1;
       this.quotes.set(market.market_id, quote);
       const marketSnapshot: MarketSnapshot = { market, quote };
       snapshots.push({ event: toEvent(row, market), markets: [marketSnapshot] });
@@ -130,6 +146,11 @@ export class ManualCsvAdapter implements VenueAdapter {
       files,
       imported: snapshots.length,
       scanned_at: new Date().toISOString(),
+      house_rules: {
+        present: houseRules !== null,
+        source_document: houseRules?.source_document ?? '',
+        scopes,
+      },
     };
     return snapshots;
   }

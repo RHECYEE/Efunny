@@ -323,15 +323,46 @@ Three things had to be true for that pairing to be found at all:
   because matching structure says they trigger on the same fact and *not* that
   they settle the same way.
 
-The pair above scores **0.56** and is therefore never surfaced, because
-DraftKings' capture carries no settlement text and silence is treated as a
-material gap. Adding two columns fixes that:
+The pair above is never surfaced, because the settlement comparison cannot be
+completed — and that turns out to be the substantive finding rather than a
+paperwork problem.
 
-| Capture includes | Confidence | Result |
+### Settlement rules are not on the market card
+
+Sportsbooks do not publish settlement terms per market. They publish one House
+Rules document covering a whole product, and the market card in the app
+carries none of it. So the rules are supplied once in
+`imports/<venue>/rules.json`, at whatever granularity the venue actually
+documents them — the venue, a section of the board, or a named market. Which
+scope a rule came from is recorded, because "this venue settles crypto on
+index X" is a weaker claim about one contract than a rule written for it.
+
+Doing that does **not** reliably raise confidence, and it should not:
+
+| What the venue's rules say | Confidence | Result |
 | --- | --- | --- |
-| odds only | 0.67 | rejected |
-| `+ settlement_source` | 0.76 | rejected |
-| `+ settlement_rules` | **0.85** | review tier, arb-eligible |
+| nothing findable | 0.67 | rejected — the rules are unknown |
+| a **different** price index | 0.55 | rejected — a known difference, worse than an unknown |
+| the **same** price index | **0.85** | review tier, surfaced |
+
+For a crypto threshold, the settlement index *is* the contract. "Above
+$100,000 on the CF Bitcoin Real-Time Index" and "above $100,000 on some other
+spot index" are different bets that agree almost always and disagree exactly
+when the price is near the threshold — which is precisely when the hedge would
+be called upon. A tool that scored those as equivalent would be inventing an
+arbitrage.
+
+Capturing the house rules is therefore worth doing whichever way it comes out.
+If the sources match you gain a usable signal; if they differ you learn the
+hedge is unsound. Both beat assuming.
+
+### A stated conflict costs more than silence
+
+The differ used to charge the same for "the venues disagree" as for "one venue
+is silent", which made documenting the rules change nothing. Silence is an
+unknown that might resolve either way; a stated conflict is a known
+difference. They now carry different penalties, and the summary says which
+kind each field is.
 
 ### What a manual capture cannot give you
 

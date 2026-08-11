@@ -156,6 +156,18 @@ const PENALTY: Record<DiffSeverity, number> = {
   DISQUALIFYING: 1,
 };
 
+/**
+ * A material difference costs more when both venues actually documented the
+ * rule and the two statements disagree.
+ *
+ * Silence leaves an unknown that might resolve either way. A stated conflict —
+ * one venue settling a $100,000 threshold on one price index and the other on
+ * a different index — is a known difference, and it is exactly the kind that
+ * bites at a threshold, where two indices that agree to four decimal places
+ * most of the time can still land on opposite sides.
+ */
+const MATERIAL_CONFLICT_PENALTY = 0.15;
+
 function normalizeWhitespace(text: string): string {
   return text.replace(/\s+/g, ' ').trim();
 }
@@ -223,6 +235,7 @@ export function diffSettlementField(
   const rightTokens = settlementTokens(right);
   const similarity = tokenSimilarity(leftTokens, rightTokens);
 
+  const bothDocumented = left !== '' && right !== '';
   const base: Omit<SettlementFieldDiff, 'severity' | 'explanation'> = {
     field,
     label,
@@ -230,6 +243,7 @@ export function diffSettlementField(
     right,
     left_only_terms: exclusiveTerms(leftTokens, rightTokens),
     right_only_terms: exclusiveTerms(rightTokens, leftTokens),
+    conflict: false,
   };
 
   if (left.toLowerCase() === right.toLowerCase()) {
@@ -263,6 +277,7 @@ export function diffSettlementField(
     return {
       ...base,
       severity: disqualifying ? 'DISQUALIFYING' : 'MATERIAL',
+      conflict: bothDocumented,
       explanation,
     };
   }
@@ -280,7 +295,11 @@ export function diffSettlementField(
   return {
     ...base,
     severity: 'MATERIAL',
+    conflict: bothDocumented,
     explanation:
+      (bothDocumented
+        ? 'Both venues document this rule and the statements disagree. '
+        : '') +
       `Rules share only ${Math.round(similarity * 100)}% of their terms. ` +
       `Unmatched on this side: ${base.left_only_terms.slice(0, 6).join(', ') || 'none'}. ` +
       `Unmatched on the other: ${base.right_only_terms.slice(0, 6).join(', ') || 'none'}.`,
@@ -309,14 +328,28 @@ export function diffSettlement(left: SettlementSpec, right: SettlementSpec): Set
   // Penalties accumulate, but a single disqualifying field dominates.
   const penalty = fields.some((f) => f.severity === 'DISQUALIFYING')
     ? 1
-    : Math.min(0.35, fields.reduce((sum, f) => sum + PENALTY[f.severity], 0));
+    : Math.min(
+        0.45,
+        fields.reduce(
+          (sum, f) =>
+            sum +
+            (f.severity === 'MATERIAL' && f.conflict
+              ? MATERIAL_CONFLICT_PENALTY
+              : PENALTY[f.severity]),
+          0,
+        ),
+      );
 
   const problems = fields.filter((f) => f.severity !== 'IDENTICAL');
+  const conflicts = problems.filter((f) => f.conflict);
   const summary =
     problems.length === 0
       ? 'Settlement rules are identical across venues.'
       : `${problems.length} of ${fields.length} settlement fields differ ` +
-        `(worst: ${worst.toLowerCase()}): ${problems.map((p) => p.label).join(', ')}.`;
+        `(worst: ${worst.toLowerCase()}): ${problems.map((p) => p.label).join(', ')}.` +
+        (conflicts.length > 0
+          ? ` ${conflicts.length} are stated conflicts rather than undocumented rules.`
+          : '');
 
   return { fields, worst_severity: worst, confidence_penalty: penalty, summary };
 }

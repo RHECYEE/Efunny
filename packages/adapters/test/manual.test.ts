@@ -280,7 +280,59 @@ describe('cross-venue matching against an exchange', () => {
     expect(match.settlement_diff.summary).toContain('Settlement source');
   });
 
-  it('clears the arbitrage floor once the capture carries the rules text', () => {
+  it('lowers confidence when the two venues name different settlement sources', () => {
+    // This is the case that matters for crypto thresholds. "Coinbase spot"
+    // and "CF Bitcoin Real-Time Index" are different numbers that agree
+    // almost always and disagree exactly when a threshold is close — which is
+    // precisely when a hedge across them would fail. Documenting the rules
+    // makes the pairing score *worse*, and that is the correct outcome.
+    const differentIndex = manualToMarket(row(), {
+      ...context,
+      house_rules: {
+        source_document: 'venue house rules',
+        sections: {
+          Bitcoin: {
+            settlement_source: 'Coinbase spot price',
+            settlement_rules: 'Resolves on the Coinbase spot price for the period.',
+          },
+        },
+      },
+    });
+    const undocumented = verifyMatch(kalshi, manualToMarket(row(), context));
+    const documented = verifyMatch(kalshi, differentIndex);
+
+    expect(documented.confidence).toBeLessThan(undocumented.confidence);
+    expect(documented.eligible_for_arbitrage).toBe(false);
+    const source = documented.settlement_diff.fields.find((f) => f.field === 'settlement_source');
+    expect(source?.severity).toBe('MATERIAL');
+    expect(source?.right_only_terms).toContain('coinbase');
+  });
+
+  it('records how specifically the settlement rules were written', () => {
+    // A venue-wide rule applied to one contract is an inference about that
+    // contract, so it cannot support the same confidence as a rule written
+    // for the market itself.
+    const venueWide = manualToMarket(row(), {
+      ...context,
+      house_rules: { source_document: 'house rules', venue: { settlement_source: 'X' } },
+    });
+    const sectionLevel = manualToMarket(row(), {
+      ...context,
+      house_rules: { source_document: 'house rules', sections: { Bitcoin: { settlement_source: 'X' } } },
+    });
+
+    expect(venueWide.provenance.settlement_rules_scope).toBe('VENUE');
+    expect(sectionLevel.provenance.settlement_rules_scope).toBe('SECTION');
+    expect(venueWide.provenance.confidence_ceiling).toBeLessThan(
+      sectionLevel.provenance.confidence_ceiling,
+    );
+  });
+
+  it('clears the arbitrage floor only if the venues settle the same way', () => {
+    // Note what this fixture asserts: that DraftKings settles on the *same*
+    // index as Kalshi. That is an assumption about the world, not a property
+    // of the capture — if the venues use different indices the score drops
+    // instead, as the test above shows.
     const documented = manualToMarket(
       row({ settlement_source: 'CF Bitcoin Real-Time Index', settlement_rules: kalshiRules }),
       context,

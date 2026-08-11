@@ -17,9 +17,15 @@ import {
   type OrderBook,
   type Provenance,
   type Quote,
-  type SettlementSpec,
 } from '@arbterminal/core';
 import type { ValidRow } from './repair.js';
+import {
+  ceilingForScope,
+  describeScope,
+  resolveRules,
+  type HouseRules,
+  type ResolvedRules,
+} from './rules.js';
 
 /**
  * Turning a captured sportsbook row into the shared schema.
@@ -173,20 +179,31 @@ export interface NormalizeContext {
   assumed_stake_limit: number;
   jurisdiction: string;
   currency: string;
+  /** House rules for the venue, loaded once from `rules.json`. */
+  house_rules?: HouseRules | null;
 }
 
-function provenanceFor(row: ValidRow, context: NormalizeContext): Provenance {
+function provenanceFor(
+  row: ValidRow,
+  context: NormalizeContext,
+  rules: ResolvedRules,
+): Provenance {
+  // A repaired record was not matched against the venue's own text, so it can
+  // never present as mechanically identical. Rule scope caps it further: a
+  // venue-wide rule applied to one contract is an inference about that
+  // contract, not a statement of it. The tighter ceiling wins.
+  const repairCeiling = row.repairs.length > 0 ? 0.94 : 0.97;
+
   return {
     source: 'MANUAL_IMPORT',
     origin: `${context.display_name} captured manually${row.source ? ` from ${row.source}` : ''}`,
     repaired: row.repairs.length > 0,
     repairs: row.repairs,
-    // A repaired record was not matched against the venue's own text, so it
-    // can never present as mechanically identical. It stays inside the
-    // manual-review band no matter how well the rest of the checks score.
-    confidence_ceiling: row.repairs.length > 0 ? 0.94 : 0.97,
+    confidence_ceiling: Math.min(repairCeiling, ceilingForScope(rules.scope)),
     depth_observed: false,
     captured_at: row.captured_at || null,
+    settlement_rules_scope: rules.scope,
+    settlement_rules_note: describeScope(rules.scope, rules.source_document),
   };
 }
 
@@ -205,17 +222,11 @@ function provenanceFor(row: ValidRow, context: NormalizeContext): Provenance {
  * `settlement_source` and `settlement_rules` columns in the capture and they
  * are used; otherwise the gap stays visible.
  */
-function settlementFor(row: ValidRow, _context: NormalizeContext): SettlementSpec {
-  return {
-    settlement_source: row.settlement_source,
-    settlement_rules_text: row.settlement_rules,
-    void_rules: row.void_rules,
-    overtime_rules: '',
-  };
-}
+
 
 export function toMarket(row: ValidRow, context: NormalizeContext): Market {
   const reading = interpret(row);
+  const rules = resolveRules(context.house_rules ?? null, row);
   const venueMarketId = `${row.market}|${row.outcome}`.replace(/\s+/g, '_').slice(0, 120);
   const title = `${row.market} — ${row.outcome}`;
   const years = extractYears(`${row.market} ${row.outcome}`);
@@ -232,7 +243,7 @@ export function toMarket(row: ValidRow, context: NormalizeContext): Market {
     line: reading.line,
     comparison_operator: reading.operator,
     threshold: reading.threshold,
-    settlement: settlementFor(row, context),
+    settlement: rules.settlement,
     jurisdiction: context.jurisdiction,
     currency: context.currency,
     match_confidence: 0,
@@ -240,7 +251,7 @@ export function toMarket(row: ValidRow, context: NormalizeContext): Market {
     status: 'OPEN',
     close_time: reading.deadline,
     payout_per_contract: ONE_DOLLAR,
-    provenance: provenanceFor(row, context),
+    provenance: provenanceFor(row, context, rules),
   };
 }
 
