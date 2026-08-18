@@ -1,5 +1,3 @@
-import { existsSync, readFileSync } from 'node:fs';
-import { join } from 'node:path';
 import type { SettlementSpec } from '@arbterminal/core';
 
 /**
@@ -45,11 +43,14 @@ export interface ResolvedRules {
 
 export const RULES_FILENAME = 'rules.json';
 
-export function loadHouseRules(directory: string): HouseRules | null {
-  const path = existsSync(directory) ? join(directory, RULES_FILENAME) : directory;
-  if (!existsSync(path)) return null;
+/**
+ * Parse a rules document. Kept separate from reading it off a disk so the
+ * same logic runs on a phone, where there is no filesystem to read from and
+ * the text arrives from a file picker or a text box instead.
+ */
+export function parseHouseRules(text: string): HouseRules | null {
   try {
-    return JSON.parse(readFileSync(path, 'utf8')) as HouseRules;
+    return JSON.parse(text) as HouseRules;
   } catch {
     // A malformed rules file must not take the price import down with it; the
     // markets simply carry no settlement text, which the differ already

@@ -1,7 +1,7 @@
 import { spawn } from 'node:child_process';
 import { isSea } from 'node:sea';
 import { existsSync } from 'node:fs';
-import { KalshiAdapter, ManualCsvAdapter } from '@arbterminal/adapters';
+import { KalshiAdapter, ManualCsvDirectoryAdapter } from '@arbterminal/adapters';
 import type { VenueAdapter } from '@arbterminal/adapters';
 import { buildApi } from './api.js';
 import { config } from './config.js';
@@ -30,7 +30,7 @@ const adapters: VenueAdapter[] = [
 // of that route recorded on each record rather than hidden.
 if (existsSync(config.manual_imports_directory)) {
   adapters.push(
-    new ManualCsvAdapter({
+    new ManualCsvDirectoryAdapter({
       venue: config.manual_venue,
       display_name: config.manual_display_name,
       directory: config.manual_imports_directory,

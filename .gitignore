@@ -3,6 +3,11 @@ dist/
 
 # Packaged executables and the SEA intermediates that produce them.
 build/
+
+# Capacitor regenerates the native Android project from capacitor.config.json
+# and the built web assets, so it is an artifact rather than source.
+apps/mobile/android/
+apps/mobile/ios/
 *.tsbuildinfo
 .DS_Store
 .env

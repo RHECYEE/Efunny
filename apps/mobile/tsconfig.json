@@ -1,0 +1,14 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "noEmit": true,
+    "lib": ["ES2022", "DOM", "DOM.Iterable"],
+    "jsx": "react-jsx",
+    "types": ["vite/client"],
+    "paths": {
+      "@arbterminal/core": ["../../packages/core/src/index.ts"],
+      "@arbterminal/adapters": ["../../packages/adapters/src/index.ts"]
+    }
+  },
+  "include": ["src"]
+}

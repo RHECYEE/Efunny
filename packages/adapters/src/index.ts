@@ -15,6 +15,8 @@ export * from './manual/csv.js';
 export * from './manual/repair.js';
 export * from './manual/rules.js';
 export * from './manual/adapter.js';
+// Filesystem-backed variant. Node only — the mobile build must not import it.
+export * from './manual/node.js';
 // `toMarket`, `toQuote` and friends exist in both normalizers by design —
 // each adapter owns its own mapping — so the manual ones are renamed rather
 // than star-exported into a collision.

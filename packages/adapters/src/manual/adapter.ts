@@ -1,5 +1,3 @@
-import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
-import { extname, join } from 'node:path';
 import {
   VigInPriceFeeModel,
   type EventSnapshot,
@@ -11,7 +9,7 @@ import type { AdapterCapabilities, FetchOptions, VenueAdapter } from '../types.j
 import { parseCsv } from './csv.js';
 import { validateRows, type ImportResult, type RepairOptions } from './repair.js';
 import { toEvent, toMarket, toQuote, type NormalizeContext } from './normalize.js';
-import { loadHouseRules, type HouseRules } from './rules.js';
+import { parseHouseRules, type HouseRules } from './rules.js';
 
 /**
  * An adapter over manually captured price files.
@@ -31,8 +29,7 @@ export interface ManualCsvAdapterOptions extends RepairOptions {
   /** Machine identifier used as `Market.venue`, e.g. "draftkings". */
   venue: string;
   display_name: string;
-  /** Folder scanned for `.csv` files. Every file found is imported. */
-  directory: string;
+
   /**
    * Stake this book would plausibly accept on one leg, in dollars. Used as
    * the assumed size, since the venue publishes none. Default $500.
@@ -54,6 +51,15 @@ export interface ImportDiagnostics extends ImportResult {
   };
 }
 
+/**
+ * A manual venue built from CSV *text*, with no filesystem anywhere in it.
+ *
+ * The split matters: on a phone there is no directory to scan, and the file
+ * arrives from a picker or a paste box. Keeping the parsing, validation,
+ * repair and normalization on this side of the seam means the mobile build
+ * runs exactly the same import logic as the server, rather than a
+ * reimplementation that could drift.
+ */
 export class ManualCsvAdapter implements VenueAdapter {
   readonly venue: string;
   readonly display_name: string;
@@ -74,6 +80,19 @@ export class ManualCsvAdapter implements VenueAdapter {
   private lastImport: ImportDiagnostics | null = null;
   /** Latest quote per market, so a paper trade can re-read the same snapshot. */
   private quotes = new Map<string, Quote>();
+  /** CSV documents to import, keyed by a display name. */
+  private sources: Array<{ name: string; text: string }> = [];
+  private rulesText = '';
+
+  /** Replace the CSV documents this venue is built from. */
+  setSources(sources: Array<{ name: string; text: string }>): void {
+    this.sources = sources;
+  }
+
+  /** Replace the house-rules document. Empty string clears it. */
+  setHouseRules(text: string): void {
+    this.rulesText = text;
+  }
 
   constructor(options: ManualCsvAdapterOptions) {
     this.options = options;
@@ -97,22 +116,13 @@ export class ManualCsvAdapter implements VenueAdapter {
     return this.lastImport;
   }
 
-  private files(): string[] {
-    if (!existsSync(this.options.directory)) return [];
-    if (!statSync(this.options.directory).isDirectory()) return [this.options.directory];
-    return readdirSync(this.options.directory)
-      .filter((name) => extname(name).toLowerCase() === '.csv')
-      .sort()
-      .map((name) => join(this.options.directory, name));
-  }
-
   async fetchSnapshots(_options: FetchOptions = {}): Promise<EventSnapshot[]> {
-    const files = this.files();
-    const rawRows = files.flatMap((file) => {
+    const files = this.sources.map((s) => s.name);
+    const rawRows = this.sources.flatMap((source) => {
       try {
-        return parseCsv(readFileSync(file, 'utf8'));
+        return parseCsv(source.text);
       } catch {
-        // One unreadable file must not lose the others.
+        // One unreadable document must not lose the others.
         return [];
       }
     });
@@ -121,9 +131,9 @@ export class ManualCsvAdapter implements VenueAdapter {
     this.quotes = new Map();
 
     // Sportsbooks document settlement once, for a whole product, not per
-    // market. Reload the file each cycle so editing it takes effect without a
-    // restart.
-    const houseRules: HouseRules | null = loadHouseRules(this.options.directory);
+    // market, so the rules are supplied separately from the prices.
+    const houseRules: HouseRules | null =
+      this.rulesText.trim() === '' ? null : parseHouseRules(this.rulesText);
     const context: NormalizeContext = { ...this.context, house_rules: houseRules };
     const scopes: Record<string, number> = {};
 
