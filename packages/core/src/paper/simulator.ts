@@ -99,10 +99,15 @@ export function executePaperTrade(input: ExecuteInput): PaperTrade {
     );
   }
 
-  // Size to whatever the bankroll supports, never above the card's capacity.
+  // Size to whatever the bankroll supports, never above the card's capacity,
+  // and always to a placeable number of contracts. The lot size is recovered
+  // from the card: whatever multiple of a unit makes every leg whole.
   const affordableUnits =
     opportunity.unit_cost > 0 ? bankroll / opportunity.unit_cost : 0;
-  const requestedUnits = Math.min(opportunity.capacity, affordableUnits);
+  const smallestPerUnit = Math.min(...[...perUnit.values()].filter((c) => c > 0), 1);
+  const lot = smallestPerUnit < 1 ? Math.round(1 / smallestPerUnit) : 1;
+  const requestedUnits =
+    Math.floor(Math.min(opportunity.capacity, affordableUnits) / lot) * lot;
 
   const fills: SimulatedFill[] = [];
   let unitsExecutable = requestedUnits;
@@ -148,7 +153,11 @@ export function executePaperTrade(input: ExecuteInput): PaperTrade {
       shortfall_detail: shortfall.detail,
     });
 
-    if (cpu > 0) unitsExecutable = Math.min(unitsExecutable, walk.filled / cpu);
+    // Scale down in whole lots as well: a hedge trimmed to a fractional
+    // contract is not a hedge anyone could have placed.
+    if (cpu > 0) {
+      unitsExecutable = Math.min(unitsExecutable, Math.floor(walk.filled / cpu / lot) * lot);
+    }
   }
 
   // A hedge is only a hedge if every leg fills. Scale the whole position down

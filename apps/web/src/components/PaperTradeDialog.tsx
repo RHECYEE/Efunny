@@ -97,7 +97,7 @@ export function PaperTradeDialog({ opportunity, onClose, onExecuted }: Props) {
                   <tr>
                     <td className="muted">Capacity</td>
                     <td className="r">
-                      {opportunity.capacity.toFixed(2)} units ·{' '}
+                      {opportunity.capacity.toFixed(0)} units ·{' '}
                       {formatMoney(opportunity.capacity_capital)}
                     </td>
                   </tr>
@@ -206,7 +206,7 @@ export function PaperTradeDialog({ opportunity, onClose, onExecuted }: Props) {
                 <tbody>
                   <tr>
                     <td className="muted">Units executed</td>
-                    <td className="r">{trade.units_executed.toFixed(2)}</td>
+                    <td className="r">{trade.units_executed.toFixed(0)}</td>
                   </tr>
                   <tr>
                     <td className="muted">Capital deployed</td>

@@ -15,7 +15,7 @@ describe('sportsbook <-> event-contract hedge solver', () => {
       contracts: 100,
     });
 
-    // Balanced stake is N/D = 100/2.5 = $40.00.
+    // Balanced stake is N/D = 100/2.5 = $40.00, already a whole dollar.
     expect(solution.sportsbook_stake).toBe(40_000);
     expect(solution.balanced).toBe(true);
     expect(solution.profit_if_contract_wins).toBe(solution.profit_if_book_wins);
@@ -50,17 +50,37 @@ describe('sportsbook <-> event-contract hedge solver', () => {
     expect(solution.guaranteed_profit).toBeLessThan(0);
   });
 
-  it('takes the worse branch as the guarantee when rounding unbalances it', () => {
-    // An odd stake cannot be placed to the deci-cent, so the branches differ.
+  it('rounds the stake to a whole dollar a bet slip would accept', () => {
     const solution = solveHedge({
       contract_price: 333,
       sportsbook_decimal_odds: 1.47,
       contracts: 7,
     });
+    // Whole dollars, and rounded *down*: overstaking the hedge leg past the
+    // balance point converts a guaranteed profit into a directional bet.
+    expect(solution.sportsbook_stake % 1000).toBe(0);
+    expect(solution.sportsbook_stake).toBeLessThanOrEqual(solution.sportsbook_stake_exact);
+    // The guarantee is recomputed on the rounded position, never carried
+    // over from the exact one.
     expect(solution.guaranteed_profit).toBe(
       Math.min(solution.profit_if_contract_wins, solution.profit_if_book_wins),
     );
-    expect(solution.sportsbook_stake % 10).toBe(0);
+  });
+
+  it('can be asked for the exact unrounded balance', () => {
+    const rounded = solveHedge({
+      contract_price: 333,
+      sportsbook_decimal_odds: 1.47,
+      contracts: 7,
+    });
+    const exact = solveHedge({
+      contract_price: 333,
+      sportsbook_decimal_odds: 1.47,
+      contracts: 7,
+      whole_dollar_stake: false,
+    });
+    expect(exact.sportsbook_stake).toBeGreaterThanOrEqual(rounded.sportsbook_stake);
+    expect(exact.balanced).toBe(true);
   });
 
   it('raises the stake to cover commission charged on winnings', () => {
@@ -77,7 +97,21 @@ describe('sportsbook <-> event-contract hedge solver', () => {
     });
     expect(commissioned.sportsbook_stake).toBeGreaterThan(plain.sportsbook_stake);
     expect(commissioned.guaranteed_profit).toBeLessThan(plain.guaranteed_profit);
-    expect(commissioned.balanced).toBe(true);
+    // Rounding to a placeable whole-dollar stake leaves the branches slightly
+    // apart; the exact solve is what balances them, and the guarantee always
+    // quotes the worse branch of whichever position is actually placed.
+    expect(
+      solveHedge({
+        contract_price: 400,
+        sportsbook_decimal_odds: 2.5,
+        contracts: 100,
+        sportsbook_commission: 0.05,
+        whole_dollar_stake: false,
+      }).balanced,
+    ).toBe(true);
+    expect(commissioned.guaranteed_profit).toBe(
+      Math.min(commissioned.profit_if_contract_wins, commissioned.profit_if_book_wins),
+    );
   });
 
   it('subtracts contract-side fees from the guarantee', () => {

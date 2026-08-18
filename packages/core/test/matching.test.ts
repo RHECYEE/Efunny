@@ -119,7 +119,7 @@ describe('match verification', () => {
     expect(verifyMatch(left, sameVenue).eligible_for_arbitrage).toBe(false);
   });
 
-  it('drops a contradictory settlement pairing below the arbitrage floor', () => {
+  it('separates a rules contradiction from the question of contract identity', () => {
     const right = market({
       venue: 'venue_b',
       venue_market_id: 'B3',
@@ -133,20 +133,72 @@ describe('match verification', () => {
       settlement: settlement({ overtime_rules: 'Includes overtime.' }),
     });
     const match = verifyMatch(withOvertime, right);
-    expect(match.confidence).toBeLessThan(CONFIDENCE.ARBITRAGE_FLOOR);
+    // The contracts state the same proposition; the rules contradict. One
+    // scalar could not say both, which is why they are now separate.
+    expect(match.contract.state).not.toBe('MISMATCHED');
+    expect(match.confidence).toBeGreaterThanOrEqual(CONFIDENCE.ARBITRAGE_FLOOR);
+    expect(match.settlement.assurance).toBe('CONFLICT');
     expect(match.eligible_for_arbitrage).toBe(false);
   });
 
-  it('penalises a differing settlement source without disqualifying it', () => {
+  it('calls two named-but-different settlement sources a conflict', () => {
     const right = market({
       venue: 'venue_b',
       venue_market_id: 'B4',
       settlement: settlement({ settlement_source: 'Reuters projection' }),
     });
     const match = verifyMatch(left, right);
-    expect(match.confidence).toBeLessThan(1);
-    expect(match.confidence).toBeGreaterThanOrEqual(CONFIDENCE.ARBITRAGE_FLOOR);
-    expect(match.settlement_diff.summary).toContain('Settlement source');
+    // Both venues said what they settle on, and they said different things.
+    // That is a demonstrated difference, not missing information.
+    expect(match.settlement.assurance).toBe('CONFLICT');
+    expect(match.eligible_for_arbitrage).toBe(false);
+    expect(match.settlement.reason).toContain('differ');
+  });
+
+  it('calls an unpublished settlement source unverifiable, not a conflict', () => {
+    const silent = market({
+      venue: 'venue_b',
+      venue_market_id: 'B4b',
+      settlement: settlement({ settlement_source: '' }),
+    });
+    const match = verifyMatch(left, silent);
+    expect(match.settlement.assurance).toBe('UNVERIFIABLE');
+    // Unresolved basis risk does not bar an arbitrage claim; it qualifies it.
+    expect(match.eligible_for_arbitrage).toBe(true);
+    expect(match.settlement.right_source).toContain('Not');
+  });
+
+  it('reports each contract dimension separately', () => {
+    const right = market({ venue: 'venue_b', venue_market_id: 'B4c' });
+    const match = verifyMatch(left, right);
+    const names = match.contract.dimensions.map((d) => d.name);
+    expect(names).toContain('threshold');
+    expect(names).toContain('direction');
+    expect(names).toContain('deadline');
+    expect(match.contract.dimensions.every((d) => d.agreed)).toBe(true);
+  });
+
+  it('treats a differing threshold as a hard contract mismatch', () => {
+    // Economic risk is continuous; logical mismatch is absolute. $100k and
+    // $105k are different propositions and no confidence can bridge them.
+    const other = market({
+      venue: 'venue_b',
+      venue_market_id: 'B4d',
+      market_type: 'SCALAR_THRESHOLD',
+      comparison_operator: 'GT',
+      threshold: 105_000,
+    });
+    const base = market({
+      venue: 'venue_a',
+      venue_market_id: 'A4d',
+      market_type: 'SCALAR_THRESHOLD',
+      comparison_operator: 'GT',
+      threshold: 100_000,
+    });
+    const match = verifyMatch(base, other);
+    expect(match.contract.state).toBe('MISMATCHED');
+    expect(match.confidence).toBe(0);
+    expect(match.contract.dimensions.find((d) => d.name === 'threshold')?.agreed).toBe(false);
   });
 
   it('caps fuzzy identity below the almost-certain band', () => {
@@ -159,6 +211,9 @@ describe('match verification', () => {
       title: 'Candidate A - Presidential Election Winner',
     });
     const match = verifyMatch(left, right);
+    // Same proposition reached through different wording, with no threshold
+    // to corroborate it structurally.
+    expect(match.contract.state).toBe('EQUIVALENT');
     expect(match.confidence).toBeLessThan(CONFIDENCE.ALMOST_CERTAIN_MIN);
   });
 });

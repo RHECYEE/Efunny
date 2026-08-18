@@ -7,7 +7,7 @@ import type {
 } from '../domain/types.js';
 import { contentTokens, stringSimilarity, tokenSimilarity } from '../normalize/canonical.js';
 import { clampConfidence, eligibleForArbitrage, tierFor } from './confidence.js';
-import { diffSettlement } from './settlementDiff.js';
+import { assessSettlement, compareContracts, numbersEqual } from './assurance.js';
 
 /**
  * The matching engine.
@@ -55,22 +55,6 @@ function structuralIdentity(left: Market, right: Market): boolean {
   if (left.close_time === null || right.close_time === null) return false;
   const gap = Math.abs(Date.parse(left.close_time) - Date.parse(right.close_time));
   return Number.isFinite(gap) && gap <= DEADLINE_TOLERANCE_MS;
-}
-
-/**
- * Thresholds are equal within a *relative* epsilon.
- *
- * Venues quote the same strike differently: "above $99,999.99" and "crosses
- * $100,000" are the same contract one cent apart, and an exact comparison
- * would reject the pairing outright. The epsilon has to be relative, not
- * absolute — a fixed tolerance wide enough for a six-figure crypto strike
- * would happily equate a -3.5 spread with a -4.5 one.
- */
-function numbersEqual(a: number | null, b: number | null): boolean {
-  if (a === null && b === null) return true;
-  if (a === null || b === null) return false;
-  const scale = Math.max(1, Math.abs(a), Math.abs(b));
-  return Math.abs(a - b) <= 1e-6 * scale;
 }
 
 /**
@@ -178,22 +162,26 @@ export function verifyMatch(
 
   // --- Settlement ------------------------------------------------------
 
-  const settlementDiff = diffSettlement(left.settlement, right.settlement);
+  const contract = compareContracts(left, right);
+  const settlementAssessment = assessSettlement(left, right);
+  const settlementDiff = settlementAssessment.diff;
   checks.push(
     check(
       'settlement_not_contradictory',
-      settlementDiff.worst_severity !== 'DISQUALIFYING',
-      settlementDiff.summary,
-      true,
+      settlementAssessment.assurance !== 'CONFLICT',
+      settlementAssessment.reason,
+      // A settlement conflict bars *certification*, not the pairing itself.
+      // The arb engine demotes on it; blocking here would delete the
+      // information rather than report it.
+      false,
     ),
   );
 
   checks.push(
     check(
-      'same_settlement_source',
-      settlementDiff.fields.find((f) => f.field === 'settlement_source')?.severity === 'IDENTICAL',
-      settlementDiff.fields.find((f) => f.field === 'settlement_source')?.explanation ??
-        'No settlement source recorded on either side.',
+      'settlement_basis_verified',
+      settlementAssessment.assurance === 'CONFIRMED',
+      settlementAssessment.reason,
       false,
     ),
   );
@@ -226,45 +214,25 @@ export function verifyMatch(
   );
 
   // --- Confidence ------------------------------------------------------
+  //
+  // Scoped to proposition identity alone. Settlement is a separate,
+  // three-valued assessment: folding it in here is what made "same contract,
+  // unknown index" indistinguishable from "same contract, wrong index".
 
-  // Start from how the event/outcome identity was established, then subtract
-  // for everything that weakens it.
-  let confidence: number;
-  if (eventIdsEqual && outcomeIdsEqual) {
-    confidence = 1;
-  } else {
-    // Fuzzy identity is capped below the "almost certain" band unless the
-    // canonical IDs actually agree.
-    const identity = 0.5 * titleSim + 0.5 * outcomeSim;
-    confidence = Math.min(0.94, identity);
-    if (eventIdsEqual) confidence = Math.min(0.94, Math.max(confidence, 0.8 + 0.14 * outcomeSim));
+  let confidence = contract.confidence;
 
-    // Two venues can describe one contract in words that share almost nothing
-    // — "How high will Bitcoin get in 2026 / Above $99,999.99" against "When
-    // will Bitcoin cross $100k again / Before January 2027". Where the
-    // *structure* agrees exactly (same comparison, same strike, same
-    // deadline), that is substantive evidence of identity and not merely an
-    // absent objection, so it sets a floor that pure token overlap cannot.
-    //
-    // The floor stays below the almost-certain band: matching structure says
-    // the two contracts trigger on the same fact, not that they settle the
-    // same way. Only the settlement comparison can speak to that, and it is
-    // subtracted below.
-    if (structuralIdentity(left, right)) {
-      confidence = Math.min(0.94, Math.max(confidence, 0.85));
-    }
+  // Wording corroborates structure but cannot rescue it.
+  if (contract.state === 'EQUIVALENT') {
+    confidence = Math.min(1, confidence + 0.03 * Math.max(titleSim, outcomeSim));
   }
 
-  confidence -= settlementDiff.confidence_penalty;
   if (!sameCurrency) confidence -= 0.05;
   if (left.jurisdiction !== right.jurisdiction) confidence -= 0.02;
-
-  // A market that is not open cannot be verified against live rules.
   if (left.status !== 'OPEN' || right.status !== 'OPEN') confidence -= 0.1;
 
-  // Provenance caps the result. A record that was repaired before ingestion
-  // was not matched on the venue's own text, so it cannot reach the top band
-  // however well every other check scores.
+  // Provenance caps the result. A record repaired before ingestion was not
+  // matched on the venue's own text, and a rule written for a whole product
+  // is a weaker claim about one contract than a rule written for it.
   const ceiling = Math.min(
     left.provenance.confidence_ceiling,
     right.provenance.confidence_ceiling,
@@ -285,7 +253,8 @@ export function verifyMatch(
     ),
   );
 
-  const blockingFailure = checks.some((c) => c.blocking && !c.passed);
+  const blockingFailure =
+    contract.state === 'MISMATCHED' || checks.some((c) => c.blocking && !c.passed);
   if (blockingFailure) confidence = 0;
 
   const finalConfidence = clampConfidence(confidence);
@@ -299,8 +268,15 @@ export function verifyMatch(
     tier: tierFor(finalConfidence),
     method: eventIdsEqual && outcomeIdsEqual && method !== 'SEMANTIC_PROPOSED' ? 'EXACT' : method,
     settlement_diff: settlementDiff,
+    contract: { ...contract, confidence: finalConfidence },
+    settlement: settlementAssessment,
     checks,
-    eligible_for_arbitrage: !blockingFailure && eligibleForArbitrage(finalConfidence),
+    // Unverifiable settlement does not bar an arbitrage claim — it qualifies
+    // it. Only a demonstrated conflict, or a failed logical check, does.
+    eligible_for_arbitrage:
+      !blockingFailure &&
+      eligibleForArbitrage(finalConfidence) &&
+      settlementAssessment.assurance !== 'CONFLICT',
   };
 }
 

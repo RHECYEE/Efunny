@@ -16,6 +16,7 @@ export * from './normalize/canonical.js';
 
 export * from './match/confidence.js';
 export * from './match/settlementDiff.js';
+export * from './match/assurance.js';
 export * from './match/engine.js';
 
 export * from './arb/fees.js';

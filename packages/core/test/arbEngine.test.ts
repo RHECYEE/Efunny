@@ -288,7 +288,7 @@ describe('cross-venue arbitrage', () => {
     expect(arb!.legs.map((l) => l.side).sort()).toEqual(['BUY_NO', 'BUY_YES']);
   });
 
-  it('never emits arbitrage on a match below the confidence floor', () => {
+  it('surfaces a settlement conflict as disqualified rather than hiding it', () => {
     const contradictory = market({
       venue: 'venue_b',
       venue_market_id: 'X3',
@@ -300,7 +300,12 @@ describe('cross-venue arbitrage', () => {
       settlement: settlement({ overtime_rules: 'Includes overtime.' }),
     });
     const match = verifyMatch(withOvertime, contradictory, 'EXACT');
-    expect(match.confidence).toBeLessThan(0.8);
+    // The propositions are identical; it is the *rules* that contradict, and
+    // the two facts are now reported separately instead of averaged into one
+    // number that hid which was which.
+    expect(match.contract.state).not.toBe('MISMATCHED');
+    expect(match.settlement.assurance).toBe('CONFLICT');
+    expect(match.eligible_for_arbitrage).toBe(false);
 
     const result = scan(
       {
@@ -323,10 +328,88 @@ describe('cross-venue arbitrage', () => {
       },
       baseOptions(),
     );
-    expect(only(result.opportunities, 'CROSS_VENUE_ARB')).toHaveLength(0);
+    // Still surfaced, because the prices really are complementary — but
+    // graded so nobody can mistake it for a hedge.
+    const found = result.opportunities.find((o) => o.venues.length === 2);
+    expect(found).toBeDefined();
+    expect(found!.assurance).toBe('DISQUALIFIED');
+    expect(found!.warnings.some((w) => w.includes('SETTLEMENT CONFLICT'))).toBe(true);
   });
 
-  it('withholds a reserve when the settlement wording differs', () => {
+  it('grades an unverifiable settlement as a qualified candidate, not a rejection', () => {
+    // A venue that publishes no settlement basis has not demonstrated
+    // incompatibility. Rejecting on that would discard every comparison
+    // against a book that documents nothing, which is most of them.
+    const undocumented = market({
+      venue: 'venue_b',
+      venue_market_id: 'X9',
+      settlement: settlement({
+        settlement_source: '',
+        settlement_rules_text: '',
+        void_rules: '',
+      }),
+    });
+    const match = verifyMatch(left, undocumented, 'EXACT');
+    expect(match.settlement.assurance).toBe('UNVERIFIABLE');
+    expect(match.eligible_for_arbitrage).toBe(true);
+
+    const result = scan(
+      {
+        events: [
+          {
+            event: snapshot({}, []).event,
+            markets: [
+              { market: left, quote: quote(left.market_id, book([[400, 100]], [[620, 100]])) },
+              {
+                market: undocumented,
+                quote: quote(undocumented.market_id, book([[420, 100]], [[560, 100]])),
+              },
+            ],
+          },
+        ],
+        matches: [match],
+      },
+      baseOptions(),
+    );
+
+    const arb = only(result.opportunities, 'CROSS_VENUE_ARB')[0];
+    expect(arb).toBeDefined();
+    expect(arb!.assurance).toBe('QUALIFIED_CANDIDATE');
+    // No invented reserve: there is no distribution to take a haircut from.
+    expect(arb!.settlement_mismatch_reserve).toBe(0);
+    expect(arb!.net_edge).toBe(arb!.edge_if_settlement_equivalent);
+    // The downside is stated as its own scenario instead.
+    expect(arb!.worst_case_if_settlement_differs).toBeLessThan(0);
+    expect(arb!.warnings.some((w) => w.includes('NOT CERTIFIED'))).toBe(true);
+  });
+
+  it('certifies only when contract, settlement and execution are all verified', () => {
+    const twin = market({ venue: 'venue_b', venue_market_id: 'X8' });
+    const match = verifyMatch(left, twin, 'EXACT');
+    expect(match.settlement.assurance).toBe('CONFIRMED');
+
+    const result = scan(
+      {
+        events: [
+          {
+            event: snapshot({}, []).event,
+            markets: [
+              { market: left, quote: quote(left.market_id, book([[400, 100]], [[620, 100]])) },
+              { market: twin, quote: quote(twin.market_id, book([[420, 100]], [[560, 100]])) },
+            ],
+          },
+        ],
+        matches: [match],
+      },
+      baseOptions(),
+    );
+    const arb = only(result.opportunities, 'CROSS_VENUE_ARB')[0]!;
+    expect(arb.assurance).toBe('CERTIFIED');
+    expect(arb.execution_quality).toBe('OBSERVED');
+    expect(arb.worst_case_if_settlement_differs).toBe(0);
+  });
+
+  it('reports a differing settlement source as a conflict', () => {
     const differentSource = market({
       venue: 'venue_b',
       venue_market_id: 'X4',
@@ -338,13 +421,12 @@ describe('cross-venue arbitrage', () => {
       differentSource,
     );
 
-    expect(match.confidence).toBeLessThan(1);
+    // Two venues that both name a basis, and name different ones, is a
+    // demonstrated difference rather than an unknown.
+    expect(match.settlement.assurance).toBe('CONFLICT');
+    expect(match.settlement.left_source).not.toBe(match.settlement.right_source);
     const arb = result.opportunities.find((o) => o.venues.length === 2)!;
-    expect(arb.settlement_mismatch_reserve).toBeGreaterThan(0);
-    expect(arb.net_edge).toBeLessThan(arb.gross_edge);
-    // The reserve is visible as its own line of the cost stack.
-    const line = arb.cost_stack.find((c) => c.label === 'Settlement mismatch reserve');
-    expect(line?.amount).toBe(-arb.settlement_mismatch_reserve);
+    expect(arb.assurance).toBe('DISQUALIFIED');
   });
 });
 

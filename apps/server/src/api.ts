@@ -51,6 +51,12 @@ export function parseFilter(query: Record<string, unknown>): OpportunityFilter {
   assign('types', listParam(query.types) as OpportunityFilter['types']);
   if (typeof query.section === 'string') assign('section', query.section as Section);
   if (query.guaranteed_only === 'true') assign('guaranteed_only', true);
+  if (query.certified_only === 'true') assign('certified_only', true);
+  assign('assurance', listParam(query.assurance) as OpportunityFilter['assurance']);
+  assign(
+    'settlement_assurance',
+    listParam(query.settlement_assurance) as OpportunityFilter['settlement_assurance'],
+  );
   if (typeof query.search === 'string') assign('search', query.search);
   return filter;
 }

@@ -129,10 +129,21 @@ export function portfolioStats(trades: PaperTrade[]): PortfolioStats {
   };
 }
 
-/** Maximum units of an opportunity a bankroll can fund. */
+/**
+ * Maximum units of an opportunity a bankroll can fund, as a placeable size.
+ *
+ * Floored to whole lots, because the answer is a recommendation to go and
+ * place an order, and "buy 47.83 contracts" is not one.
+ */
 export function unitsForBankroll(opportunity: Opportunity, bankroll: Money): number {
   if (opportunity.unit_cost <= 0) return 0;
-  return Math.min(opportunity.capacity, bankroll / opportunity.unit_cost);
+  const perUnit = opportunity.legs.map((l) =>
+    opportunity.capacity > 0 ? l.contracts / opportunity.capacity : 1,
+  );
+  const smallest = Math.min(...perUnit.filter((c) => c > 0), 1);
+  const lot = smallest < 1 ? Math.round(1 / smallest) : 1;
+  const affordable = Math.min(opportunity.capacity, bankroll / opportunity.unit_cost);
+  return Math.floor(affordable / lot) * lot;
 }
 
 /** Guaranteed payout of a fully hedged position, for display. */

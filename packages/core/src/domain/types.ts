@@ -283,6 +283,25 @@ export interface Opportunity {
   /** Cost of one unit of the position, in deci-cents. */
   unit_cost: Money;
   match_confidence: number;
+  /** Composed standing: certified, qualified candidate, disqualified, ... */
+  assurance: AssuranceGrade;
+  contract: ContractComparison | null;
+  settlement: SettlementAssessment | null;
+  execution_quality: ExecutionQuality;
+  /**
+   * Net edge assuming the two venues do settle off the same facts. Equal to
+   * `net_edge` when settlement is CONFIRMED.
+   */
+  edge_if_settlement_equivalent: DeciCents;
+  /**
+   * What a settlement mismatch would cost, per unit, in the worst case.
+   *
+   * For a two-leg hedge this is the entire outlay: if the venues' references
+   * straddle the threshold, the YES leg and the NO leg can both lose. Stated
+   * as its own number rather than folded into a reserve, because pricing an
+   * unquantified basis risk to the deci-cent would be false precision.
+   */
+  worst_case_if_settlement_differs: Money;
   cost_stack: CostStackEntry[];
   /** Non-fatal caveats: stale quote, thin book, settlement wording gap, ... */
   warnings: string[];
@@ -336,6 +355,105 @@ export interface SettlementDiff {
   summary: string;
 }
 
+/* ------------------------------------------------------------------ *
+ * Assurance: three orthogonal questions, never one score
+ * ------------------------------------------------------------------ */
+
+/**
+ * Does each venue's contract state the same proposition?
+ *
+ * This is a *logical* question with a hard answer. "Above $100,000" and
+ * "above $105,000" are different propositions at any price, and no amount of
+ * corroboration elsewhere rescues the pairing.
+ */
+export type ContractMatchState =
+  /** Same proposition, and both venues word it the same way. */
+  | 'IDENTICAL'
+  /** Same proposition in different words: same underlying, threshold, direction, deadline. */
+  | 'EQUIVALENT'
+  /** Demonstrably different propositions. Never comparable. */
+  | 'MISMATCHED';
+
+/**
+ * Do the two contracts settle off the same facts?
+ *
+ * Distinct from contract match, and crucially *three*-valued. Collapsing
+ * "unverifiable" into "conflict" rejects every pairing with a venue that does
+ * not publish its settlement source — which is most sportsbooks, and would
+ * quietly discard nearly everything this tool exists to find.
+ */
+export type SettlementAssurance =
+  /** Both venues name a settlement basis and they agree. */
+  | 'CONFIRMED'
+  /** At least one venue does not expose its settlement basis. Unresolved basis risk, not proven incompatibility. */
+  | 'UNVERIFIABLE'
+  /** Both venues name a basis and they differ, or a rule directly contradicts. */
+  | 'CONFLICT';
+
+/**
+ * How well the position could actually be filled, as opposed to priced.
+ */
+export type ExecutionQuality =
+  /** Real order-book depth on every leg. */
+  | 'OBSERVED'
+  /** At least one venue publishes no depth; capacity is an assumption. */
+  | 'ASSUMED_DEPTH'
+  /** At least one quote is too old to act on. */
+  | 'STALE';
+
+/**
+ * The overall standing of an opportunity, composed from the three states
+ * above rather than from a single number.
+ *
+ * `CERTIFIED` is deliberately hard to reach: it asserts that the contracts
+ * state the same proposition, settle off the same facts, and are fillable at
+ * the prices shown. Anything less says so on its face instead of being
+ * withheld.
+ */
+export type AssuranceGrade =
+  | 'CERTIFIED'
+  /** Prices imply an arbitrage, but settlement equivalence is not established. */
+  | 'QUALIFIED_CANDIDATE'
+  /** A spread exists that costs do not survive. */
+  | 'NOT_PROFITABLE'
+  /** A demonstrated settlement conflict; the hedge is known to be unsound. */
+  | 'DISQUALIFIED'
+  /** No hedge is claimed at all. */
+  | 'INFORMATIONAL';
+
+/** One dimension of the contract comparison, for the checklist display. */
+export interface ContractDimension {
+  name: string;
+  label: string;
+  agreed: boolean;
+  /** Set when the dimension proves the propositions differ. */
+  disqualifying: boolean;
+  left: string;
+  right: string;
+  detail: string;
+}
+
+export interface ContractComparison {
+  state: ContractMatchState;
+  dimensions: ContractDimension[];
+  /**
+   * 0..1 over *proposition identity only*. Settlement is not folded in — that
+   * is what `SettlementAssurance` is for, and mixing them is what made an
+   * unknown index indistinguishable from a wrong one.
+   */
+  confidence: number;
+}
+
+export interface SettlementAssessment {
+  assurance: SettlementAssurance;
+  /** Per-venue statement of the settlement basis, or that none is published. */
+  left_source: string;
+  right_source: string;
+  diff: SettlementDiff;
+  /** Plain-language reason for the assurance state. */
+  reason: string;
+}
+
 export type MatchTier =
   | 'MECHANICALLY_IDENTICAL' // 1.00
   | 'ALMOST_CERTAIN' // 0.95 - 0.99
@@ -349,13 +467,23 @@ export interface MarketMatch {
   left_market_id: string;
   right_market_id: string;
   event_id: string;
+  /** Proposition identity only. See `ContractComparison.confidence`. */
   confidence: number;
   tier: MatchTier;
   method: MatchMethod;
   settlement_diff: SettlementDiff;
+  /** Is this the same proposition? A logical question with a hard answer. */
+  contract: ContractComparison;
+  /** Do the two settle off the same facts? Three-valued, never folded into the score. */
+  settlement: SettlementAssessment;
   /** Every deterministic check that ran, and whether it passed. */
   checks: MatchCheck[];
-  /** True only if the match is allowed to be shown as arbitrage. */
+  /**
+   * Whether the pairing may be presented as an arbitrage *of some grade*.
+   * A demonstrated settlement conflict bars it; an unexposed settlement
+   * source does not — that is basis risk to disclose, not proof of
+   * incompatibility.
+   */
   eligible_for_arbitrage: boolean;
 }
 

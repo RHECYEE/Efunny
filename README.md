@@ -59,7 +59,7 @@ Then open <http://localhost:5173>. No credentials are needed — every Kalshi en
 this uses is public and unauthenticated.
 
 ```bash
-npm test             # 119 tests, no network, no model
+npm test             # 131 tests, no network, no model
 npm run typecheck
 npm run package      # build the executable for the current platform
 ```
@@ -89,10 +89,24 @@ the math.
 **A dependency-free core package.** `@arbterminal/core` imports nothing. It has no
 network access, no database, no framework and no LLM client, which is what makes
 "the arb math is testable without live data" structurally true rather than a
-convention. 119 tests run in under a second.
+convention. 131 tests run in under a second.
 
 **Persistence with no native module.** `node:sqlite` ships with Node 22, so the
 quote log needs no build step. Fastify serves the API; Vite and React serve the UI.
+
+### Recommended sizes are whole numbers
+
+Every size the terminal recommends is placeable. Positions are sized in
+**lots** — the smallest multiple of a unit that leaves every leg holding an
+integer contract count — and sportsbook stakes round down to whole dollars.
+
+A unit is $1.00 of guaranteed payout, which for an N-outcome NO basket is
+1/(N-1) contracts per leg: a fine accounting unit and an unplaceable order.
+Rounding is always **down**, and the guarantee is then recomputed on the
+rounded position rather than carried over from the fractional one —
+overstaking a hedge leg past the balance point converts a guaranteed profit
+into a directional bet, so the solver reports the worse branch of whatever is
+actually placeable.
 
 ### Prices are integers
 
@@ -337,13 +351,13 @@ documents them — the venue, a section of the board, or a named market. Which
 scope a rule came from is recorded, because "this venue settles crypto on
 index X" is a weaker claim about one contract than a rule written for it.
 
-Doing that does **not** reliably raise confidence, and it should not:
+Doing that does not reliably raise assurance, and it should not:
 
-| What the venue's rules say | Confidence | Result |
+| What the venue's rules say | Settlement assurance | Result |
 | --- | --- | --- |
-| nothing findable | 0.67 | rejected — the rules are unknown |
-| a **different** price index | 0.55 | rejected — a known difference, worse than an unknown |
-| the **same** price index | **0.85** | review tier, surfaced |
+| nothing findable | `UNVERIFIABLE` | **surfaced**, as a qualified candidate |
+| a **different** price index | `CONFLICT` | surfaced, graded disqualified |
+| the **same** price index | `CONFIRMED` | can reach certified |
 
 For a crypto threshold, the settlement index *is* the contract. "Above
 $100,000 on the CF Bitcoin Real-Time Index" and "above $100,000 on some other
@@ -355,6 +369,46 @@ arbitrage.
 Capturing the house rules is therefore worth doing whichever way it comes out.
 If the sources match you gain a usable signal; if they differ you learn the
 hedge is unsound. Both beat assuming.
+
+### Three states, not one score
+
+An earlier version of this collapsed all of that into a single confidence
+number, and rejected anything below 80%. That was a policy choice smuggled in
+as arithmetic, and it was wrong: a venue declining to publish its settlement
+index is not evidence that the contracts differ, and rejecting on it would
+have discarded essentially every DraftKings comparison forever.
+
+Three questions are now asked and answered separately:
+
+| Axis | Kind of question | Values |
+| --- | --- | --- |
+| **Contract match** | Logical, absolute | `IDENTICAL` / `EQUIVALENT` / `MISMATCHED` |
+| **Settlement assurance** | Epistemic, three-valued | `CONFIRMED` / `UNVERIFIABLE` / `CONFLICT` |
+| **Execution quality** | Practical | `OBSERVED` / `ASSUMED_DEPTH` / `STALE` |
+
+They compose into a grade rather than a number:
+
+- `CERTIFIED` — all three verified. The only thing called guaranteed arbitrage.
+- `QUALIFIED_CANDIDATE` — prices imply an arbitrage, settlement equivalence
+  unverified. Surfaced prominently and labelled **NOT CERTIFIED**.
+- `DISQUALIFIED` — a demonstrated settlement conflict. Still shown, because
+  the prices really are complementary and the reason it is not a hedge is
+  worth seeing.
+- `NOT_PROFITABLE` / `INFORMATIONAL` — costs eat the spread; no hedge claimed.
+
+The distinction that matters: **logical mismatch is absolute, economic
+mismatch is continuous.** "Above $100,000" versus "above $105,000" is a
+different proposition and is rejected outright at any price. "Above $100,000
+on CF Benchmarks" versus "above $100,000 on an undisclosed reference" is the
+same proposition with unresolved basis risk — surfaced, with the exposure
+stated.
+
+For a qualified candidate the settlement risk is **not** priced as a reserve.
+There is no distribution to take a haircut from, and quoting one to the
+deci-cent would be false precision dressed as prudence. Two numbers are shown
+instead: the edge if the bases are equivalent, and the worst case if they are
+not — which for a two-leg hedge is the entire outlay, since both legs can lose
+together.
 
 ### A stated conflict costs more than silence
 

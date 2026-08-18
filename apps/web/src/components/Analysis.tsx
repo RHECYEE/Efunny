@@ -16,6 +16,7 @@ import {
   formatSize,
   typeLabel,
 } from '../format.js';
+import { AssurancePanel } from './AssurancePanel.js';
 import { SettlementChecklist } from './SettlementChecklist.js';
 
 interface Props {
@@ -90,6 +91,9 @@ export function Analysis({ opportunity, onClose, onPaperTrade }: Props) {
       {error && <div className="banner err">Could not load analysis: {error}</div>}
 
       <div className="analysis-grid">
+        {/* ---------------- assurance ---------------- */}
+        <AssurancePanel opportunity={opportunity} />
+
         {/* ---------------- venue prices ---------------- */}
         <div className="panel">
           <h3>Venue prices &amp; implied probability</h3>
@@ -194,7 +198,7 @@ export function Analysis({ opportunity, onClose, onPaperTrade }: Props) {
                   </tr>
                   <tr>
                     <td className="muted">Max arb size</td>
-                    <td className="r">{opportunity.capacity.toFixed(2)} units</td>
+                    <td className="r">{opportunity.capacity.toFixed(0)} units</td>
                   </tr>
                   <tr>
                     <td className="muted">Capital at max</td>
@@ -211,7 +215,7 @@ export function Analysis({ opportunity, onClose, onPaperTrade }: Props) {
                 <>
                   <tr>
                     <td className="muted">Max size</td>
-                    <td className="r">{opportunity.capacity.toFixed(2)} units</td>
+                    <td className="r">{opportunity.capacity.toFixed(0)} units</td>
                   </tr>
                   <tr>
                     <td className="muted">Capital at risk</td>

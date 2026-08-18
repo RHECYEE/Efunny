@@ -38,6 +38,12 @@ export interface HedgeInput {
   sportsbook_commission?: number;
   /** Fees on the contract leg, in deci-cents, total (not per contract). */
   contract_fees?: Money;
+  /**
+   * Round the stake to whole dollars. Default true — a bet slip takes a
+   * dollar amount, and a recommendation of $40.37 is not one anybody can
+   * place. Set false to see the exact unrounded balance.
+   */
+  whole_dollar_stake?: boolean;
 }
 
 export interface HedgeSolution {
@@ -69,6 +75,18 @@ function roundToCent(deciCents: number): Money {
   return roundHalfAway(deciCents / 10) * 10;
 }
 
+/**
+ * Round a stake down to whole dollars.
+ *
+ * Down, not to nearest: overstaking the hedge leg past the balance point
+ * turns a guaranteed profit into a directional position on the side that got
+ * too much. Rounding down leaves the imbalance on the side already covered,
+ * and the caller reports the worse branch as the guarantee either way.
+ */
+function roundToDollar(deciCents: number): Money {
+  return Math.floor(deciCents / 1000) * 1000;
+}
+
 export function solveHedge(input: HedgeInput): HedgeSolution {
   const {
     contract_price: price,
@@ -87,7 +105,8 @@ export function solveHedge(input: HedgeInput): HedgeSolution {
   const netOddsMultiplier = 1 + (odds - 1) * (1 - commission);
   // Branch equality gives N = S * netOddsMultiplier, hence S = N / netMult.
   const exactStake = (contracts * ONE_DOLLAR) / netOddsMultiplier;
-  const stake = roundToCent(exactStake);
+  const stake =
+    (input.whole_dollar_stake ?? true) ? roundToDollar(exactStake) : roundToCent(exactStake);
 
   const contractOutlay = roundHalfAway(contracts * price);
   const totalOutlay = contractOutlay + stake + fees;
@@ -129,6 +148,7 @@ export function solveHedgeForBudget(
   const netOddsMultiplier = 1 + (odds - 1) * (1 - commission);
   // outlay(N) = N*price + N*1000/mult; solve outlay(N) = budget.
   const perContractOutlay = price + ONE_DOLLAR / netOddsMultiplier;
+  // Whole contracts only: the sportsbook leg is sized to match them.
   const contracts = perContractOutlay > 0 ? Math.floor(budget / perContractOutlay) : 0;
   return solveHedge({ ...input, contracts: Math.max(0, contracts) });
 }

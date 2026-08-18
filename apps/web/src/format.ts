@@ -37,10 +37,15 @@ export function formatCountdown(ms: number | null): string {
   return `${Math.max(1, Math.round(ms / 60_000))}m`;
 }
 
+/**
+ * Contract counts are whole numbers, because they are instructions to place
+ * an order. Depth figures coming off a venue can be fractional and are
+ * abbreviated rather than rounded away.
+ */
 export function formatSize(contracts: number): string {
   if (contracts >= 100_000) return `${(contracts / 1000).toFixed(0)}k`;
   if (contracts >= 1000) return `${(contracts / 1000).toFixed(1)}k`;
-  return contracts.toFixed(contracts < 10 ? 2 : 0);
+  return Math.round(contracts).toString();
 }
 
 export function confidenceClass(confidence: number): string {
@@ -73,6 +78,35 @@ export function edgeLabel(type: string): string {
       return 'Divergence after costs';
     default:
       return 'Executable edge';
+  }
+}
+
+/** Assurance grade shown on the card, in place of a bare confidence number. */
+export function gradeLabel(grade: string): string {
+  switch (grade) {
+    case 'CERTIFIED':
+      return 'CERTIFIED';
+    case 'QUALIFIED_CANDIDATE':
+      return 'QUALIFIED';
+    case 'NOT_PROFITABLE':
+      return 'NOT PROFITABLE';
+    case 'DISQUALIFIED':
+      return 'DISQUALIFIED';
+    default:
+      return 'INFORMATIONAL';
+  }
+}
+
+export function settlementLabel(state: string | undefined): string {
+  switch (state) {
+    case 'CONFIRMED':
+      return 'settlement confirmed';
+    case 'CONFLICT':
+      return 'settlement conflict';
+    case 'UNVERIFIABLE':
+      return 'settlement unverifiable';
+    default:
+      return 'single rule set';
   }
 }
 

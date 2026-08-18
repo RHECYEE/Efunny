@@ -270,17 +270,37 @@ describe('cross-venue matching against an exchange', () => {
     expect(match.checks.find((c) => c.name === 'same_structural_trigger')?.passed).toBe(true);
   });
 
-  it('will not certify the pairing while one side documents no settlement rules', () => {
-    // The wording overlap is near zero; only the structure corroborates it,
-    // and structure alone says the two trigger on the same fact, not that
-    // they pay out the same way.
+  it('surfaces the pairing as unverifiable when the book publishes no index', () => {
+    // The wording overlap is near zero, but every structural dimension
+    // agrees, so the propositions match. What is missing is the settlement
+    // basis — and a book that publishes none has not demonstrated a
+    // mismatch. Rejecting here would discard essentially every DraftKings
+    // comparison forever.
     const match = verifyMatch(kalshi, manualToMarket(row(), context));
-    expect(match.confidence).toBeLessThan(0.8);
-    expect(match.eligible_for_arbitrage).toBe(false);
-    expect(match.settlement_diff.summary).toContain('Settlement source');
+
+    expect(match.contract.state).toBe('EQUIVALENT');
+    expect(match.confidence).toBeGreaterThanOrEqual(0.8);
+    expect(match.settlement.assurance).toBe('UNVERIFIABLE');
+    expect(match.settlement.right_source).toContain('Not exposed');
+    expect(match.eligible_for_arbitrage).toBe(true);
   });
 
-  it('lowers confidence when the two venues name different settlement sources', () => {
+  it('grades a demonstrated index difference as a conflict, not an unknown', () => {
+    const differentIndex = manualToMarket(row(), {
+      ...context,
+      house_rules: {
+        source_document: 'house rules',
+        sections: { Bitcoin: { settlement_source: 'Coinbase spot price' } },
+      },
+    });
+    const match = verifyMatch(kalshi, differentIndex);
+    expect(match.settlement.assurance).toBe('CONFLICT');
+    expect(match.eligible_for_arbitrage).toBe(false);
+    // The propositions still match; it is the basis that does not.
+    expect(match.contract.state).toBe('EQUIVALENT');
+  });
+
+  it('does not let a documented conflict masquerade as missing information', () => {
     // This is the case that matters for crypto thresholds. "Coinbase spot"
     // and "CF Bitcoin Real-Time Index" are different numbers that agree
     // almost always and disagree exactly when a threshold is close — which is
@@ -301,7 +321,12 @@ describe('cross-venue matching against an exchange', () => {
     const undocumented = verifyMatch(kalshi, manualToMarket(row(), context));
     const documented = verifyMatch(kalshi, differentIndex);
 
-    expect(documented.confidence).toBeLessThan(undocumented.confidence);
+    // Same contract confidence either way — the propositions did not change.
+    // What changed is what we know about settlement, and that is now its own
+    // three-valued state rather than a discount on one number.
+    expect(undocumented.settlement.assurance).toBe('UNVERIFIABLE');
+    expect(documented.settlement.assurance).toBe('CONFLICT');
+    expect(undocumented.eligible_for_arbitrage).toBe(true);
     expect(documented.eligible_for_arbitrage).toBe(false);
     const source = documented.settlement_diff.fields.find((f) => f.field === 'settlement_source');
     expect(source?.severity).toBe('MATERIAL');
@@ -328,7 +353,7 @@ describe('cross-venue matching against an exchange', () => {
     );
   });
 
-  it('clears the arbitrage floor only if the venues settle the same way', () => {
+  it('confirms settlement when both venues name the same index', () => {
     // Note what this fixture asserts: that DraftKings settles on the *same*
     // index as Kalshi. That is an assumption about the world, not a property
     // of the capture — if the venues use different indices the score drops
@@ -338,8 +363,8 @@ describe('cross-venue matching against an exchange', () => {
       context,
     );
     const match = verifyMatch(kalshi, documented);
+    expect(match.settlement.assurance).toBe('CONFIRMED');
     expect(match.confidence).toBeGreaterThanOrEqual(0.8);
-    expect(match.tier).toBe('REVIEW_REQUIRED');
     expect(match.eligible_for_arbitrage).toBe(true);
   });
 

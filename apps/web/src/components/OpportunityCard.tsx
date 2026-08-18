@@ -1,8 +1,10 @@
 import type { Opportunity } from '@arbterminal/core';
 import {
   confidenceClass,
+  gradeLabel,
   headlineEdgeClass,
   isHedged,
+  settlementLabel,
   formatAge,
   formatCountdown,
   formatEdge,
@@ -50,9 +52,29 @@ export function OpportunityCard({
 
         <div className="card-meta">
           <span className={`pill ${opportunity.type}`}>{typeLabel(opportunity.type)}</span>
-          <span className={`conf ${confidenceClass(opportunity.match_confidence)}`}>
-            match {(opportunity.match_confidence * 100).toFixed(0)}%
+          {/* The grade is what governs how far to trust this, so it leads.
+              The confidence number now answers one question only — whether
+              the two legs are the same proposition. */}
+          <span className={`grade-pill grade-${opportunity.assurance}`}>
+            {gradeLabel(opportunity.assurance)}
           </span>
+          <span className={`conf ${confidenceClass(opportunity.match_confidence)}`}>
+            contract {(opportunity.match_confidence * 100).toFixed(0)}%
+          </span>
+          {opportunity.settlement && (
+            <span
+              className={
+                opportunity.settlement.assurance === 'CONFIRMED'
+                  ? 'pos'
+                  : opportunity.settlement.assurance === 'CONFLICT'
+                    ? 'neg'
+                    : 'warn'
+              }
+              style={{ fontSize: 10 }}
+            >
+              {settlementLabel(opportunity.settlement.assurance)}
+            </span>
+          )}
           <span className="dim">{opportunity.venues.join(' + ')}</span>
           <span className="dim">
             depth {formatSize(Math.min(...opportunity.legs.map((l) => l.depth_available)))}
@@ -103,7 +125,7 @@ export function OpportunityCard({
           )}
         </div>
         <div className="sub">
-          max {opportunity.capacity.toFixed(2)} units ·{' '}
+          max {opportunity.capacity.toFixed(0)} units ·{' '}
           {hedged ? (
             <>{formatMoney(opportunity.capacity_capital)} capital</>
           ) : (

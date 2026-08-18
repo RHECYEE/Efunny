@@ -1,13 +1,17 @@
 import { opportunityId } from '../domain/ids.js';
 import { ONE_DOLLAR, roundHalfAway, type DeciCents } from '../domain/money.js';
 import type {
+  AssuranceGrade,
+  ContractComparison,
   CostStackEntry,
   Event,
+  ExecutionQuality,
   Market,
   MarketMatch,
   Opportunity,
   OpportunityType,
   Quote,
+  SettlementAssessment,
   SettlementDiff,
 } from '../domain/types.js';
 import { CONFIDENCE, requiresManualReview } from '../match/confidence.js';
@@ -17,9 +21,11 @@ import type { FeeBook } from './fees.js';
 import {
   capitalRequired,
   depthLimitedUnits,
+  floorToLots,
   maxProfitableUnits,
   pricePosition,
   topOfBookUnits,
+  unitsPerLot,
   type LegSpec,
   type PositionCosts,
 } from './position.js';
@@ -105,6 +111,9 @@ interface BuildInput {
   legs: LegSpec[];
   matchConfidence: number;
   settlementDiff: SettlementDiff | null;
+  /** Null for a single-venue position: one rule set, nothing to compare. */
+  settlement: SettlementAssessment | null;
+  contract: ContractComparison | null;
   opts: ResolvedOptions;
   /** Overrides the guaranteed-payout framing for RELATIVE_VALUE. */
   grossEdgeOverride?: DeciCents;
@@ -143,6 +152,31 @@ function buildCostStack(
   ];
 }
 
+/**
+ * Compose the three states into one standing.
+ *
+ * CERTIFIED asserts all three: the contracts state the same proposition, they
+ * settle off the same facts, and the position is fillable at the prices
+ * shown. QUALIFIED_CANDIDATE is the honest home for an arbitrage whose
+ * settlement equivalence nobody can check — it is surfaced, prominently, and
+ * labelled for what it is rather than withheld.
+ */
+function gradeAssurance(
+  type: OpportunityType,
+  settlement: SettlementAssessment['assurance'],
+  execution: ExecutionQuality,
+  matchConfidence: number,
+  netEdge: DeciCents,
+): AssuranceGrade {
+  if (settlement === 'CONFLICT') return 'DISQUALIFIED';
+  if (type === 'RELATIVE_VALUE') return 'INFORMATIONAL';
+  if (netEdge <= 0) return 'NOT_PROFITABLE';
+  if (settlement === 'CONFIRMED' && execution === 'OBSERVED' && matchConfidence >= 0.95) {
+    return 'CERTIFIED';
+  }
+  return 'QUALIFIED_CANDIDATE';
+}
+
 function classify(
   requested: OpportunityType,
   venues: string[],
@@ -161,11 +195,27 @@ function buildOpportunity(input: BuildInput): Opportunity | null {
   const { legs, opts, matchConfidence, settlementDiff } = input;
   if (legs.length === 0) return null;
 
-  const reserve = settlementMismatchReserve(settlementDiff, matchConfidence);
+  // One rule set means nothing to compare, so a single-venue position is
+  // settlement-confirmed by construction.
+  const assurance = input.settlement?.assurance ?? 'CONFIRMED';
+
+  // The reserve prices *residual match uncertainty* on a pairing whose
+  // settlement basis is known. It cannot price unquantified basis risk: when
+  // the venue does not publish its index there is no distribution to take a
+  // haircut from, and inventing one to the deci-cent would be false
+  // precision dressed as prudence. That case is reported as its own scenario
+  // instead — see `worst_case_if_settlement_differs`.
+  const reserve =
+    assurance === 'CONFIRMED' ? settlementMismatchReserve(settlementDiff, matchConfidence) : 0;
   const profitableUnits = maxProfitableUnits(legs, opts.fees, reserve, opts.min_net_edge);
   // When no size clears costs we still price the position, at its
   // zero-slippage size, so the user can see how far short it falls.
-  const units = profitableUnits > 0 ? profitableUnits : Math.max(topOfBookUnits(legs), 0);
+  // Even the unprofitable fallback is quoted at a placeable size: a card
+  // recommending 13.24 contracts is not a recommendation anyone can act on.
+  const units =
+    profitableUnits > 0
+      ? profitableUnits
+      : floorToLots(Math.max(topOfBookUnits(legs), 0), unitsPerLot(legs));
   if (!Number.isFinite(units) || units <= 0) return null;
 
   const costs = pricePosition(legs, units, opts.fees);
@@ -253,6 +303,29 @@ function buildOpportunity(input: BuildInput): Opportunity | null {
     warnings.push('No guaranteed hedge exists for this position; it is a directional view.');
   }
 
+  const executionQuality: ExecutionQuality = legs.some(
+    (l) => !l.market.provenance.depth_observed,
+  )
+    ? 'ASSUMED_DEPTH'
+    : quoteAge > opts.stale_quote_ms
+      ? 'STALE'
+      : 'OBSERVED';
+
+  const grade = gradeAssurance(type, assurance, executionQuality, matchConfidence, netEdge);
+
+  if (assurance === 'UNVERIFIABLE' && type !== 'RELATIVE_VALUE') {
+    warnings.push(
+      `NOT CERTIFIED: ${input.settlement?.reason ?? 'settlement equivalence is unverified'} ` +
+        `If the two references disagree at settlement, both legs can lose.`,
+    );
+  }
+  if (assurance === 'CONFLICT') {
+    warnings.push(
+      `SETTLEMENT CONFLICT: ${input.settlement?.reason ?? 'the venues settle differently'} ` +
+        `This cannot be a hedge.`,
+    );
+  }
+
   const feeNotes = venues.map((v) =>
     opts.fees.for(v).describe({
       venue: v,
@@ -285,6 +358,18 @@ function buildOpportunity(input: BuildInput): Opportunity | null {
     capacity_capital: capitalRequired(costs),
     unit_cost: roundHalfAway(costs.unit_cost),
     match_confidence: matchConfidence,
+    assurance: grade,
+    contract: input.contract,
+    settlement: input.settlement,
+    execution_quality: executionQuality,
+    edge_if_settlement_equivalent: roundHalfAway(grossEdge - costs.fees - costs.slippage),
+    // Both legs of a cross-venue hedge can lose if the venues' references
+    // straddle the trigger, so the exposure is the whole outlay rather than
+    // the edge. Zero where there is no settlement risk to speak of.
+    worst_case_if_settlement_differs:
+      venues.length > 1 && assurance !== 'CONFIRMED'
+        ? -roundHalfAway(costs.unit_cost * units)
+        : 0,
     cost_stack: buildCostStack(
       costs,
       reserve,
@@ -341,6 +426,8 @@ export function detectComplementary(
       legs,
       matchConfidence: CONFIDENCE.MECHANICALLY_IDENTICAL,
       settlementDiff: identicalSettlement(),
+      settlement: null,
+      contract: null,
       opts,
     });
     if (opportunity) out.push(opportunity);
@@ -425,6 +512,8 @@ export function detectYesBasket(
     legs,
     matchConfidence: CONFIDENCE.MECHANICALLY_IDENTICAL,
     settlementDiff: identicalSettlement(),
+    settlement: null,
+    contract: null,
     opts,
   });
 }
@@ -463,6 +552,8 @@ export function detectNoBasket(
     legs,
     matchConfidence: CONFIDENCE.MECHANICALLY_IDENTICAL,
     settlementDiff: identicalSettlement(),
+    settlement: null,
+    contract: null,
     opts,
     extraWarnings: snapshot.event.exhaustive
       ? []
@@ -486,7 +577,12 @@ export function detectCrossVenue(
   eventsById: Map<string, Event>,
   opts: ResolvedOptions,
 ): Opportunity | null {
-  if (!match.eligible_for_arbitrage) return null;
+  // Gate on the *logical* question only. A settlement conflict does not
+  // delete the observation that two complementary contracts are priced below
+  // a dollar — it explains why that observation is not a hedge, and the user
+  // is better served seeing it graded DISQUALIFIED than not seeing it.
+  if (match.contract.state === 'MISMATCHED') return null;
+  if (match.confidence < CONFIDENCE.ARBITRAGE_FLOOR) return null;
   const left = byId.get(match.left_market_id);
   const right = byId.get(match.right_market_id);
   if (!left || !right) return null;
@@ -526,6 +622,8 @@ export function detectCrossVenue(
       legs,
       matchConfidence: match.confidence,
       settlementDiff: match.settlement_diff,
+      settlement: match.settlement,
+      contract: match.contract,
       opts,
     });
     if (opportunity && (!best || opportunity.net_edge > best.net_edge)) best = opportunity;
@@ -606,6 +704,8 @@ export function detectRelativeValue(
     ],
     matchConfidence: match.confidence,
     settlementDiff: match.settlement_diff,
+    settlement: match.settlement,
+    contract: match.contract,
     opts,
     grossEdgeOverride: roundHalfAway(divergence),
     extraWarnings: [
@@ -672,6 +772,8 @@ export function detectBasketDivergence(
     ],
     matchConfidence: CONFIDENCE.MECHANICALLY_IDENTICAL,
     settlementDiff: identicalSettlement(),
+    settlement: null,
+    contract: null,
     opts,
     grossEdgeOverride: roundHalfAway(divergence),
     extraWarnings: [

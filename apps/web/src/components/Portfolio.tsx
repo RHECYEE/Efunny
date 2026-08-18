@@ -178,7 +178,7 @@ export function Portfolio({ refreshKey }: { refreshKey: number }) {
                 </span>
               </span>
               <span className="num muted">
-                {trade.units_executed.toFixed(2)} units ·{' '}
+                {trade.units_executed.toFixed(0)} units ·{' '}
                 {formatMoney(trade.capital_deployed)}
               </span>
               <span className={trade.fully_hedged ? 'pos' : 'warn'}>

@@ -52,6 +52,33 @@ export interface PositionCosts {
  */
 const MIN_MEANINGFUL_EDGE = 1;
 
+/**
+ * Units per *lot*: the smallest position size that leaves every leg holding a
+ * whole number of contracts.
+ *
+ * A unit is defined as $1.00 of guaranteed payout, which for an N-outcome NO
+ * basket means 1/(N-1) contracts per leg — a perfectly good accounting unit
+ * and a completely unplaceable order. Nobody buys 0.5 contracts. Sizing is
+ * therefore done in lots, and a lot is whatever multiple of a unit makes the
+ * contract counts integers.
+ */
+export function unitsPerLot(legs: LegSpec[]): number {
+  let lot = 1;
+  for (const leg of legs) {
+    if (leg.contracts_per_unit <= 0 || leg.contracts_per_unit >= 1) continue;
+    // 1/(N-1) contracts per unit means N-1 units buys one whole contract.
+    const needed = Math.round(1 / leg.contracts_per_unit);
+    if (needed > 1) lot = Math.max(lot, needed);
+  }
+  return lot;
+}
+
+/** Round a unit count down to a whole number of lots. */
+export function floorToLots(units: number, lot: number): number {
+  if (!Number.isFinite(units) || units <= 0 || lot <= 0) return 0;
+  return Math.floor(units / lot) * lot;
+}
+
 /** Largest number of units obtainable from visible depth across all legs. */
 export function depthLimitedUnits(legs: LegSpec[]): number {
   if (legs.length === 0) return 0;
@@ -177,9 +204,13 @@ export function maxProfitableUnits(
   const target = Math.max(minNetEdge, MIN_MEANINGFUL_EDGE);
 
   // A size too small to be worth quoting still tells us whether any size works.
-  const probe = Math.min(ceiling, 0.01);
+  // The smallest placeable position is one lot; anything below that is not a
+  // size, so profitability is probed there rather than at an infinitesimal.
+  const lot = unitsPerLot(legs);
+  if (ceiling < lot) return 0;
+  const probe = lot;
   if (netEdgeAt(probe) < target) return 0;
-  if (netEdgeAt(ceiling) >= target) return ceiling;
+  if (netEdgeAt(ceiling) >= target) return floorToLots(ceiling, lot);
 
   let lo = probe;
   let hi = ceiling;
@@ -188,8 +219,10 @@ export function maxProfitableUnits(
     if (netEdgeAt(mid) >= target) lo = mid;
     else hi = mid;
   }
-  // Round down to a size that is certainly still profitable.
-  return Math.floor(lo * 100) / 100;
+  // Round down to a whole number of lots. Every leg then holds an integer
+  // contract count, and because the position only shrinks, a size that was
+  // profitable stays profitable.
+  return floorToLots(lo, unitsPerLot(legs));
 }
 
 /** Total capital to take `units` of a position, in deci-cents. */

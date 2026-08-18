@@ -683,3 +683,76 @@ th + th,
 td + td {
   padding-left: 10px;
 }
+
+/* ---------- assurance ---------- */
+
+.grade-pill {
+  font-size: 10px;
+  padding: 0 6px;
+  border-radius: 2px;
+  letter-spacing: 0.06em;
+  border: 1px solid currentColor;
+  white-space: nowrap;
+}
+.grade-CERTIFIED {
+  color: var(--pos);
+  background: #0d2a1a;
+}
+.grade-QUALIFIED_CANDIDATE {
+  color: var(--warn);
+  background: #2a2008;
+}
+.grade-NOT_PROFITABLE {
+  color: var(--muted);
+}
+.grade-DISQUALIFIED {
+  color: var(--neg);
+  background: #2a1013;
+}
+.grade-INFORMATIONAL {
+  color: var(--relative);
+}
+
+.grade {
+  border-left: 3px solid;
+  padding: 7px 10px;
+  border-radius: 2px;
+}
+.grade-title {
+  font-weight: 700;
+  letter-spacing: 0.05em;
+}
+.grade-body {
+  color: var(--muted);
+  margin-top: 3px;
+}
+.grade.grade-certified {
+  border-color: var(--pos);
+  background: #0d2a1a;
+  color: var(--pos);
+}
+.grade.grade-qualified {
+  border-color: var(--warn);
+  background: #2a2008;
+  color: var(--warn);
+}
+.grade.grade-disqualified {
+  border-color: var(--neg);
+  background: #2a1013;
+  color: var(--neg);
+}
+.grade.grade-near {
+  border-color: var(--line-bright);
+  background: var(--panel-2);
+  color: var(--muted);
+}
+.grade.grade-info {
+  border-color: var(--relative);
+  background: #1a1430;
+  color: var(--relative);
+}
+
+.why {
+  color: var(--muted);
+  font-size: 11px;
+}
