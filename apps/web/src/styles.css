@@ -152,6 +152,13 @@ select:focus {
 .body.no-cart {
   grid-template-columns: 232px minmax(0, 1fr);
 }
+/* Results get the whole width; filters appear only when asked for. */
+.body.single {
+  grid-template-columns: minmax(0, 1fr);
+}
+.body.single.with-rail {
+  grid-template-columns: 232px minmax(0, 1fr);
+}
 
 .rail,
 .cart-rail {
@@ -755,4 +762,108 @@ td + td {
 .why {
   color: var(--muted);
   font-size: 11px;
+}
+
+/* ---------- results: three states, nothing else ---------- */
+
+.bankroll-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--line);
+  background: var(--panel);
+}
+.bankroll-bar label { color: var(--muted); }
+.bankroll-bar .dollar { color: var(--dim); }
+.bankroll-bar input { width: 120px; font-size: 15px; }
+
+.results { display: flex; flex-direction: column; }
+
+.result {
+  border-bottom: 1px solid var(--line);
+  border-left: 3px solid transparent;
+  padding: 16px 20px;
+}
+.result h3 {
+  margin: 0;
+  font-size: 13px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--muted);
+  font-weight: 500;
+}
+.result .verdict { font-size: 20px; font-weight: 700; margin: 8px 0 12px; }
+
+.result.found { border-left-color: var(--pos); }
+.result.found .verdict { color: var(--pos); }
+.result.possible { border-left-color: var(--warn); }
+.result.possible .verdict { color: var(--warn); }
+.result.none { border-left-color: var(--line-bright); opacity: 0.75; }
+.result.none .verdict { color: var(--muted); font-size: 16px; }
+
+.result .plain { color: var(--muted); margin: 0 0 12px; max-width: 60ch; line-height: 1.5; }
+.result .caution {
+  color: #e6d5b0; background: #1c1509; border-left: 3px solid var(--warn);
+  padding: 10px 12px; margin: 0 0 12px; max-width: 60ch; line-height: 1.5;
+}
+
+.figures { margin: 0 0 12px; max-width: 420px; }
+.figures > div {
+  display: flex; justify-content: space-between; align-items: baseline;
+  padding: 4px 0; border-bottom: 1px solid #161e28;
+}
+.figures dt { color: var(--muted); margin: 0; }
+.figures dd { margin: 0; font-variant-numeric: tabular-nums; font-size: 15px; }
+.figures .headline { border-bottom: none; padding-top: 8px; }
+.figures .headline dt { color: var(--text); font-weight: 600; }
+.figures .headline dd { font-size: 24px; font-weight: 700; }
+.result.found .headline dd { color: var(--pos); }
+.result.possible .headline dd { color: var(--warn); }
+
+.result .actions { display: flex; gap: 8px; margin-top: 4px; }
+.result .actions button { padding: 7px 14px; }
+
+.why-box {
+  margin-top: 14px; padding: 14px; background: var(--panel-2);
+  border-left: 3px solid var(--warn); border-radius: 2px; max-width: 66ch;
+}
+.why-box p { margin: 0 0 10px; color: var(--muted); line-height: 1.55; }
+.why-box p:last-child { margin-bottom: 0; }
+
+.how { margin-top: 16px; max-width: 460px; }
+.how h4 {
+  margin: 0 0 10px; font-size: 11px; letter-spacing: 0.14em;
+  text-transform: uppercase; color: var(--dim); font-weight: 600;
+}
+.position {
+  display: grid; grid-template-columns: 1fr auto; gap: 2px 12px;
+  padding: 10px 0; border-bottom: 1px solid var(--line);
+}
+.position .venue { color: #fff; font-weight: 600; grid-column: 1; grid-row: 1; }
+.position .what { grid-column: 1; grid-row: 2; }
+.position .fine { grid-column: 1; grid-row: 3; }
+.position .amount {
+  grid-column: 2; grid-row: 1 / 4; align-self: center; font-size: 22px;
+  font-variant-numeric: tabular-nums; text-align: right;
+}
+.position .what { color: var(--muted); }
+.position .what .on { color: var(--dim); }
+.position .fine { color: var(--dim); font-size: 11px; }
+
+.totals { margin-top: 10px; }
+.totals > div {
+  display: flex; justify-content: space-between; padding: 4px 0;
+  color: var(--muted); font-variant-numeric: tabular-nums;
+}
+.totals .big {
+  border-top: 2px solid var(--line-bright); margin-top: 6px; padding-top: 10px;
+  font-size: 18px; font-weight: 700; color: var(--text);
+}
+.result.found .totals .big span:last-child { color: var(--pos); }
+.result.possible .totals .big span:last-child { color: var(--warn); }
+
+.showing {
+  padding: 16px 20px; color: var(--dim); display: flex;
+  align-items: center; gap: 12px;
 }

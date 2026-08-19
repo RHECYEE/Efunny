@@ -26,5 +26,6 @@ export * from './arb/position.js';
 export * from './arb/engine.js';
 
 export * from './paper/simulator.js';
+export * from './portfolio/allocation.js';
 export * from './portfolio/cart.js';
 export * from './portfolio/filters.js';

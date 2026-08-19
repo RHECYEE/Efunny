@@ -148,6 +148,7 @@ export function pricePosition(
 
     legDetails.push({
       market_id: leg.market.market_id,
+      outcome: leg.market.outcome,
       venue: leg.market.venue,
       side: leg.side,
       price: top ?? ONE_DOLLAR,

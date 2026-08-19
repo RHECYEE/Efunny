@@ -2,14 +2,15 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import type { Opportunity, OpportunityFilter, Section } from '@arbterminal/core';
 import { api, type StatusResponse } from './api.js';
 import { formatAge } from './format.js';
+import { arbStatus } from '@arbterminal/core';
 import { Analysis } from './components/Analysis.js';
+import { ResultCard } from './components/ResultCard.js';
 import { Cart, type CartEntry } from './components/Cart.js';
 import { Filters } from './components/Filters.js';
-import { OpportunityCard } from './components/OpportunityCard.js';
 import { PaperTradeDialog } from './components/PaperTradeDialog.js';
 import { Portfolio } from './components/Portfolio.js';
 
-type Tab = 'PREDICTION' | 'SPORTS' | 'PORTFOLIO';
+type Tab = 'PREDICTION' | 'SPORTS' | 'CART' | 'PORTFOLIO';
 
 const POLL_MS = 10_000;
 
@@ -24,6 +25,13 @@ export function App() {
   const [cart, setCart] = useState<CartEntry[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [portfolioKey, setPortfolioKey] = useState(0);
+  // Dollars, as typed. Sizing is driven by what the user will actually
+  // deploy, not by whatever depth happens to exist.
+  const [bankroll, setBankroll] = useState('1000');
+  // The point of the tool is to find opportunities, not to publish a feed of
+  // things that do not work, so dead ends are collapsed until asked for.
+  const [showRejected, setShowRejected] = useState(false);
+  const [showFilters, setShowFilters] = useState(false);
 
   const section: Section = tab === 'SPORTS' ? 'SPORTS' : 'PREDICTION';
 
@@ -85,8 +93,9 @@ export function App() {
         <div className="tabs">
           {(
             [
-              ['PREDICTION', 'Prediction markets'],
+              ['PREDICTION', 'Predictions'],
               ['SPORTS', 'Sports'],
+              ['CART', 'Cart'],
               ['PORTFOLIO', 'Paper portfolio'],
             ] as Array<[Tab, string]>
           ).map(([key, label]) => (
@@ -124,18 +133,12 @@ export function App() {
         </div>
       )}
 
-      <div className={`body${tab === 'PORTFOLIO' ? ' no-cart' : ''}`}>
-        {tab === 'PORTFOLIO' ? (
-          <div className="rail">
-            <div className="section-title">Paper portfolio</div>
-            <div className="field">
-              <div className="muted">
-                Every simulated fill is priced against a book re-fetched at execution time. No order
-                is ever placed at any venue.
-              </div>
-            </div>
-          </div>
-        ) : (
+      {/* The filter rail and the cart both speak the engine's language —
+          executable edge, match confidence, units of a position. Neither
+          answers "is there an arbitrage", so neither sits in front of the
+          results any more. */}
+      <div className={`body single${showFilters && tab !== 'PORTFOLIO' && tab !== 'CART' ? ' with-rail' : ''}`}>
+        {showFilters && tab !== 'PORTFOLIO' && tab !== 'CART' && (
           <Filters
             filter={filter}
             onChange={setFilter}
@@ -146,50 +149,91 @@ export function App() {
         )}
 
         <div className="main">
-          {tab === 'PORTFOLIO' ? (
+          {tab === 'CART' ? (
+            <Cart
+              entries={cart}
+              opportunities={opportunities}
+              onSetUnits={(id, units) =>
+                setCart((current) =>
+                  current.map((entry) =>
+                    entry.opportunity_id === id ? { ...entry, units } : entry,
+                  ),
+                )
+              }
+              onRemove={(id) =>
+                setCart((current) => current.filter((entry) => entry.opportunity_id !== id))
+              }
+              onClear={() => setCart([])}
+            />
+          ) : tab === 'PORTFOLIO' ? (
             <Portfolio refreshKey={portfolioKey} />
           ) : (
             <>
-              {opportunities.length === 0 ? (
-                <div className="empty">
-                  <strong>Nothing clears the bar right now</strong>
-                  {tab === 'SPORTS' ? (
-                    <>
-                      Sports coverage is moneyline-only and needs a second venue to produce
-                      cross-venue opportunities. Stage 2 adds a licensed odds provider; until then
-                      this section shows only single-venue sports contracts.
-                    </>
-                  ) : (
-                    <>
-                      {totalBeforeFilter > 0
-                        ? `${totalBeforeFilter} opportunities exist but none match these filters.`
-                        : 'No opportunity currently survives fees, slippage and the settlement reserve. That is the normal state of an efficient market.'}
-                    </>
-                  )}
-                </div>
-              ) : (
-                <div className="cards">
-                  {opportunities.map((opportunity) => (
-                    <OpportunityCard
-                      key={opportunity.opportunity_id}
-                      opportunity={opportunity}
-                      selected={selectedId === opportunity.opportunity_id}
-                      inCart={cart.some(
-                        (entry) => entry.opportunity_id === opportunity.opportunity_id,
+              {(() => {
+                const actionable = opportunities.filter((o) => arbStatus(o) !== 'NONE');
+                const rejected = opportunities.filter((o) => arbStatus(o) === 'NONE');
+                const shown = showRejected ? [...actionable, ...rejected] : actionable;
+                const bankrollDeciCents = Math.round((Number(bankroll) || 0) * 1000);
+
+                return (
+                  <>
+                    <div className="bankroll-bar">
+                      <label htmlFor="bankroll">Your bankroll</label>
+                      <span className="dollar">$</span>
+                      <input
+                        id="bankroll"
+                        type="number"
+                        min="1"
+                        step="100"
+                        value={bankroll}
+                        onChange={(e) => setBankroll(e.target.value)}
+                      />
+                      <button
+                        className="ghost"
+                        style={{ marginLeft: 'auto' }}
+                        onClick={() => setShowFilters(!showFilters)}
+                      >
+                        {showFilters ? 'Hide filters' : 'Filters'}
+                      </button>
+                    </div>
+
+                    {shown.length === 0 ? (
+                      <div className="empty">
+                        <strong>No arbitrage right now</strong>
+                        {rejected.length > 0
+                          ? `${rejected.length} pairing${rejected.length === 1 ? '' : 's'} checked and none of them work.`
+                          : 'Nothing on these venues currently prices below its own payout. In an efficient market that is the normal state.'}
+                      </div>
+                    ) : (
+                      <div className="results">
+                        {shown.map((opportunity) => (
+                          <ResultCard
+                            key={opportunity.opportunity_id}
+                            opportunity={opportunity}
+                            bankroll={bankrollDeciCents}
+                            onDetails={() =>
+                              setSelectedId(
+                                selectedId === opportunity.opportunity_id
+                                  ? null
+                                  : opportunity.opportunity_id,
+                              )
+                            }
+                          />
+                        ))}
+                      </div>
+                    )}
+
+                    <div className="showing">
+                      Showing {shown.length} of {opportunities.length} checked
+                      {rejected.length > 0 && (
+                        <button className="ghost" onClick={() => setShowRejected(!showRejected)}>
+                          {showRejected ? 'Hide' : 'Show'} {rejected.length} rejected
+                        </button>
                       )}
-                      onSelect={() =>
-                        setSelectedId((current) =>
-                          current === opportunity.opportunity_id
-                            ? null
-                            : opportunity.opportunity_id,
-                        )
-                      }
-                      onPaperTrade={() => setTradingId(opportunity.opportunity_id)}
-                      onToggleCart={() => toggleCart(opportunity)}
-                    />
-                  ))}
-                </div>
-              )}
+                    </div>
+                  </>
+                );
+              })()}
 
               {selected && (
                 <Analysis
@@ -202,23 +246,6 @@ export function App() {
           )}
         </div>
 
-        {tab !== 'PORTFOLIO' && (
-          <Cart
-            entries={cart}
-            opportunities={opportunities}
-            onSetUnits={(id, units) =>
-              setCart((current) =>
-                current.map((entry) =>
-                  entry.opportunity_id === id ? { ...entry, units } : entry,
-                ),
-              )
-            }
-            onRemove={(id) =>
-              setCart((current) => current.filter((entry) => entry.opportunity_id !== id))
-            }
-            onClear={() => setCart([])}
-          />
-        )}
       </div>
 
       {trading && (

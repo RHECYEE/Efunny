@@ -236,6 +236,15 @@ export type LegSide = 'BUY_YES' | 'BUY_NO';
 
 export interface Leg {
   market_id: string;
+  /**
+   * Canonical outcome this leg pays on.
+   *
+   * Distinct from `market_id`: a cross-venue hedge holds two *different*
+   * markets that resolve on the *same* proposition. Anything reasoning about
+   * how the event can turn out has to group by this, or it invents impossible
+   * worlds where one venue's market wins and the other's does not.
+   */
+  outcome: string;
   venue: string;
   side: LegSide;
   /** Best displayed price for this leg at detection time. */
@@ -449,6 +458,12 @@ export interface SettlementAssessment {
   /** Per-venue statement of the settlement basis, or that none is published. */
   left_source: string;
   right_source: string;
+  /** Which venue each source belongs to. Without these a caller has to guess,
+   *  and guessing from a sorted venue list names the wrong one. */
+  left_venue: string;
+  right_venue: string;
+  /** The venue that failed to publish a basis, when assurance is UNVERIFIABLE. */
+  unverified_venue: string | null;
   diff: SettlementDiff;
   /** Plain-language reason for the assurance state. */
   reason: string;

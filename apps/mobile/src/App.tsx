@@ -1,53 +1,25 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Preferences } from '@capacitor/preferences';
-import { formatEdge, formatMoney, formatPrice } from './format.js';
+import { arbStatus } from '@arbterminal/core';
+import { ResultCard } from './components/ResultCard.js';
 import { scanOnDevice, type ScanOutput } from './scan.js';
 
 /**
  * Phone UI.
  *
  * The desktop terminal is a dense multi-panel layout that does not survive a
- * phone screen, so this is not a port of it. It does the three things the
- * app is for: take a capture, compare it against Kalshi, and show what came
- * back — with the assurance grade leading, since on a small screen the one
- * thing that must not get lost is how far a number can be trusted.
+ * phone screen, so this is not a port of it. It does the three things the app
+ * is for: take a capture, compare it against Kalshi, and answer whether there
+ * is an arbitrage, how much can go in, and what comes back. Everything the
+ * engine knows beyond that stays in the engine.
  */
 
 const STORE_CSV = 'arbterminal.csv';
 const STORE_RULES = 'arbterminal.rules';
 const STORE_SERIES = 'arbterminal.series';
+const STORE_BANKROLL = 'arbterminal.bankroll';
 
 type Tab = 'IMPORT' | 'RESULTS';
-
-const GRADE_COPY: Record<string, { title: string; body: string; cls: string }> = {
-  CERTIFIED: {
-    title: 'CERTIFIED',
-    body: 'Same contract, same settlement basis, fillable at these prices.',
-    cls: 'g-cert',
-  },
-  QUALIFIED_CANDIDATE: {
-    title: '⚠ QUALIFIED — NOT CERTIFIED',
-    body:
-      'The contracts look complementary and imply an arbitrage, but settlement ' +
-      'equivalence could not be verified. A settlement mismatch could break the hedge.',
-    cls: 'g-qual',
-  },
-  DISQUALIFIED: {
-    title: '✕ DISQUALIFIED',
-    body: 'The venues name different settlement bases. This cannot be a hedge.',
-    cls: 'g-dis',
-  },
-  NOT_PROFITABLE: {
-    title: 'NOT PROFITABLE',
-    body: 'A spread exists but fees and slippage consume it.',
-    cls: 'g-near',
-  },
-  INFORMATIONAL: {
-    title: 'INFORMATIONAL',
-    body: 'A price divergence with no hedge available. This position can lose.',
-    cls: 'g-info',
-  },
-};
 
 export function App() {
   const [tab, setTab] = useState<Tab>('IMPORT');
@@ -55,22 +27,25 @@ export function App() {
   const [csvName, setCsvName] = useState('');
   const [rules, setRules] = useState('');
   const [series, setSeries] = useState('KXBTCMAXY,KXETHMAXY');
+  const [bankroll, setBankroll] = useState('1000');
   const [busy, setBusy] = useState(false);
   const [result, setResult] = useState<ScanOutput | null>(null);
-  const [expanded, setExpanded] = useState<string | null>(null);
+  const [showRejected, setShowRejected] = useState(false);
   const fileInput = useRef<HTMLInputElement>(null);
 
   // Restore the last capture so the app opens where it was left.
   useEffect(() => {
     void (async () => {
-      const [c, r, s] = await Promise.all([
+      const [c, r, s, b] = await Promise.all([
         Preferences.get({ key: STORE_CSV }),
         Preferences.get({ key: STORE_RULES }),
         Preferences.get({ key: STORE_SERIES }),
+        Preferences.get({ key: STORE_BANKROLL }),
       ]);
       if (c.value) setCsv(c.value);
       if (r.value) setRules(r.value);
       if (s.value) setSeries(s.value);
+      if (b.value) setBankroll(b.value);
     })();
   }, []);
 
@@ -100,7 +75,11 @@ export function App() {
       });
       setResult(output);
       setTab('RESULTS');
-      await Promise.all([persist(STORE_RULES, rules), persist(STORE_SERIES, series)]);
+      await Promise.all([
+        persist(STORE_RULES, rules),
+        persist(STORE_SERIES, series),
+        persist(STORE_BANKROLL, bankroll),
+      ]);
     } catch (e) {
       setResult({
         opportunities: [],
@@ -147,7 +126,8 @@ export function App() {
           Import
         </button>
         <button className={tab === 'RESULTS' ? 'on' : ''} onClick={() => setTab('RESULTS')}>
-          Results{result ? ` (${result.opportunities.length})` : ''}
+          Results
+          {result ? ` (${result.opportunities.filter((o) => arbStatus(o) !== 'NONE').length})` : ''}
         </button>
       </nav>
 
@@ -204,9 +184,9 @@ export function App() {
               rows={3}
             />
             <p className="hint">
-              Without a settlement basis for your book, matches can still surface — they are
-              graded <b>unverifiable</b> rather than hidden. Supplying one either confirms the
-              hedge or reveals that the venues settle differently.
+              Without a settlement basis for your book, matches still surface — as{' '}
+              <b>possible</b> rather than guaranteed. Supplying one either confirms the hedge or
+              reveals that the two venues settle differently.
             </p>
           </section>
 
@@ -224,144 +204,78 @@ export function App() {
                 <div className="banner err">Kalshi request failed: {result.error}</div>
               )}
 
-              <div className="stats">
-                <div>
-                  <b>{result.kalshiMarkets}</b>
-                  <span>Kalshi markets</span>
-                </div>
-                <div>
-                  <b>{result.importedMarkets}</b>
-                  <span>imported</span>
-                </div>
-                <div>
-                  <b>{result.matches}</b>
-                  <span>cross-venue matches</span>
-                </div>
-              </div>
+              {(() => {
+                const actionable = result.opportunities.filter((o) => arbStatus(o) !== 'NONE');
+                const rejected = result.opportunities.filter((o) => arbStatus(o) === 'NONE');
+                const shown = showRejected ? [...actionable, ...rejected] : actionable;
+                const bankrollDeciCents = Math.round((Number(bankroll) || 0) * 1000);
 
-              {result.diagnostics && result.diagnostics.rejected.length > 0 && (
-                <details className="rejects">
-                  <summary>
-                    {result.diagnostics.imported} rows imported ·{' '}
-                    {result.diagnostics.rejected.length} rejected
-                  </summary>
-                  {result.diagnostics.rejected.map((r, i) => (
-                    <div key={i} className="reject">
-                      <b>{r.row.market || '(no market name)'}</b>
-                      <span>{r.reason}</span>
+                return (
+                  <>
+                    <div className="bankroll-bar">
+                      <label htmlFor="bankroll">Your bankroll</label>
+                      <span className="dollar">$</span>
+                      <input
+                        id="bankroll"
+                        type="number"
+                        inputMode="numeric"
+                        min="1"
+                        step="100"
+                        value={bankroll}
+                        onChange={(e) => {
+                          setBankroll(e.target.value);
+                          void persist(STORE_BANKROLL, e.target.value);
+                        }}
+                      />
                     </div>
-                  ))}
-                </details>
-              )}
 
-              {result.opportunities.length === 0 ? (
-                <p className="empty">
-                  Nothing surfaced. With an efficient market that is the normal result — the
-                  scan ran, it just found no divergence worth reporting.
-                </p>
-              ) : (
-                result.opportunities.map((o) => {
-                  const grade = GRADE_COPY[o.assurance] ?? GRADE_COPY.INFORMATIONAL!;
-                  const open = expanded === o.opportunity_id;
-                  return (
-                    <article
-                      key={o.opportunity_id}
-                      className={`card ${grade.cls}`}
-                      onClick={() => setExpanded(open ? null : o.opportunity_id)}
-                    >
-                      <div className="gtitle">{grade.title}</div>
-                      <h3>{o.event_title}</h3>
+                    {shown.length === 0 ? (
+                      <p className="empty">
+                        <b>No arbitrage right now</b>
+                        <br />
+                        {rejected.length > 0
+                          ? `${rejected.length} pairing${rejected.length === 1 ? '' : 's'} checked and none of them work.`
+                          : 'Nothing here prices below its own payout. In an efficient market that is the normal result.'}
+                      </p>
+                    ) : (
+                      shown.map((o) => (
+                        <ResultCard
+                          key={o.opportunity_id}
+                          opportunity={o}
+                          bankroll={bankrollDeciCents}
+                        />
+                      ))
+                    )}
 
-                      <div className="edge">
-                        <b>{formatEdge(o.net_edge)}</b>
-                        <span>per $1 of payout</span>
-                      </div>
+                    <div className="showing">
+                      <span>
+                        Showing {shown.length} of {result.opportunities.length} checked ·{' '}
+                        {result.importedMarkets} imported vs {result.kalshiMarkets} Kalshi markets
+                      </span>
+                      {rejected.length > 0 && (
+                        <button onClick={() => setShowRejected(!showRejected)}>
+                          {showRejected ? 'Hide' : 'Show'} {rejected.length} rejected
+                        </button>
+                      )}
+                    </div>
 
-                      <div className="legs">
-                        {o.legs.map((l, i) => (
-                          <div key={i}>
-                            <span className="v">{l.venue}</span>
-                            <span>
-                              {l.side === 'BUY_YES' ? 'YES' : 'NO'} {l.outcome_label}
-                            </span>
-                            <span className="p">{formatPrice(l.price)}</span>
-                            <span className="q">×{Math.round(l.contracts)}</span>
+                    {result.diagnostics && result.diagnostics.rejected.length > 0 && (
+                      <details className="rejects">
+                        <summary>
+                          {result.diagnostics.imported} rows imported ·{' '}
+                          {result.diagnostics.rejected.length} rejected
+                        </summary>
+                        {result.diagnostics.rejected.map((r, i) => (
+                          <div key={i} className="reject">
+                            <b>{r.row.market || '(no market name)'}</b>
+                            <span>{r.reason}</span>
                           </div>
                         ))}
-                      </div>
-
-                      <div className="meta">
-                        <span>cost {formatPrice(o.unit_cost)}</span>
-                        <span>size {o.capacity.toFixed(0)}</span>
-                        <span>capital {formatMoney(o.capacity_capital)}</span>
-                      </div>
-
-                      {open && (
-                        <div className="detail">
-                          <p className="gbody">{grade.body}</p>
-
-                          {o.settlement && (
-                            <table>
-                              <tbody>
-                                <tr>
-                                  <td>{o.venues[0]}</td>
-                                  <td>{o.settlement.left_source}</td>
-                                </tr>
-                                <tr>
-                                  <td>{o.venues[1]}</td>
-                                  <td>{o.settlement.right_source}</td>
-                                </tr>
-                                <tr>
-                                  <td>Equivalence</td>
-                                  <td className={`s-${o.settlement.assurance}`}>
-                                    {o.settlement.assurance}
-                                  </td>
-                                </tr>
-                              </tbody>
-                            </table>
-                          )}
-
-                          {o.settlement && o.settlement.assurance !== 'CONFIRMED' && (
-                            <table>
-                              <tbody>
-                                <tr>
-                                  <td>Edge if bases match</td>
-                                  <td className="pos">
-                                    {formatEdge(o.edge_if_settlement_equivalent)}
-                                  </td>
-                                </tr>
-                                <tr>
-                                  <td>Worst case if not</td>
-                                  <td className="neg">
-                                    {formatMoney(o.worst_case_if_settlement_differs)}
-                                  </td>
-                                </tr>
-                              </tbody>
-                            </table>
-                          )}
-
-                          <div className="stack">
-                            {o.cost_stack.map((c) => (
-                              <div key={c.label}>
-                                <span>{c.label}</span>
-                                <span className={c.amount < 0 ? 'neg' : 'pos'}>
-                                  {formatEdge(c.amount)}
-                                </span>
-                              </div>
-                            ))}
-                          </div>
-
-                          {o.warnings.map((w) => (
-                            <p key={w} className="warn">
-                              ⚠ {w}
-                            </p>
-                          ))}
-                        </div>
-                      )}
-                    </article>
-                  );
-                })
-              )}
+                      </details>
+                    )}
+                  </>
+                );
+              })()}
             </>
           )}
         </main>

@@ -13,7 +13,7 @@
   "scripts": {
     "test": "vitest run",
     "test:watch": "vitest",
-    "typecheck": "tsc -p packages/core --noEmit && tsc -p packages/adapters --noEmit && tsc -p apps/server --noEmit && tsc -p apps/web --noEmit",
+    "typecheck": "tsc -p packages/core --noEmit && tsc -p packages/adapters --noEmit && tsc -p apps/server --noEmit && tsc -p apps/web --noEmit && tsc -p apps/mobile --noEmit",
     "dev": "concurrently -n server,web -c cyan,magenta \"npm:dev:server\" \"npm:dev:web\"",
     "dev:server": "npm run dev -w @arbterminal/server",
     "dev:web": "npm run dev -w @arbterminal/web",

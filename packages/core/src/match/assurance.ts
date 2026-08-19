@@ -215,6 +215,10 @@ export function assessSettlement(left: Market, right: Market): SettlementAssessm
 
   const leftHasSource = left.settlement.settlement_source.trim() !== '';
   const rightHasSource = right.settlement.settlement_source.trim() !== '';
+  const identity = {
+    left_venue: left.venue,
+    right_venue: right.venue,
+  };
 
   // A directly contradicted rule — overtime included versus excluded, a
   // reversed threshold direction — is a conflict whatever the sources say.
@@ -223,6 +227,8 @@ export function assessSettlement(left: Market, right: Market): SettlementAssessm
       assurance: 'CONFLICT',
       left_source: leftSource,
       right_source: rightSource,
+      ...identity,
+      unverified_venue: null,
       diff,
       reason: 'The two rule sets directly contradict each other.',
     };
@@ -235,6 +241,8 @@ export function assessSettlement(left: Market, right: Market): SettlementAssessm
         assurance: 'CONFLICT',
         left_source: leftSource,
         right_source: rightSource,
+        ...identity,
+        unverified_venue: null,
         diff,
         reason:
           `Both venues name a settlement basis and they differ ` +
@@ -246,6 +254,8 @@ export function assessSettlement(left: Market, right: Market): SettlementAssessm
       assurance: 'CONFIRMED',
       left_source: leftSource,
       right_source: rightSource,
+      ...identity,
+      unverified_venue: null,
       diff,
       reason: `Both venues settle on ${leftSource}.`,
     };
@@ -256,6 +266,8 @@ export function assessSettlement(left: Market, right: Market): SettlementAssessm
     assurance: 'UNVERIFIABLE',
     left_source: leftSource,
     right_source: rightSource,
+    ...identity,
+    unverified_venue: missing,
     diff,
     reason:
       `${missing} does not expose a settlement basis for this market, so equivalence ` +
