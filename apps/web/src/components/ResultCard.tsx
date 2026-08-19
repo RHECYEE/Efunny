@@ -1,5 +1,12 @@
 import { useState } from 'react';
-import { allocate, arbStatus, explainNoArbitrage, type Opportunity } from '@arbterminal/core';
+import {
+  allocate,
+  arbStatus,
+  explainNoArbitrage,
+  explainNotCertified,
+  isSingleVenue,
+  type Opportunity,
+} from '@arbterminal/core';
 import { formatMoney, formatPrice } from '../format.js';
 
 /**
@@ -87,13 +94,7 @@ export function ResultCard({ opportunity, bankroll, onDetails }: Props) {
         <p className="plain">{allocation.reason}</p>
       )}
 
-      {possible && (
-        <p className="caution">
-          ⚠ We cannot guarantee this one because{' '}
-          {opportunity.settlement?.unverified_venue ?? 'one venue'} doesn’t publish enough
-          settlement information.
-        </p>
-      )}
+      {possible && <p className="caution">⚠ {explainNotCertified(opportunity)}</p>}
 
       <div className="actions">
         {allocation.ok && (
@@ -114,19 +115,14 @@ export function ResultCard({ opportunity, bankroll, onDetails }: Props) {
       {showWhy && (
         <div className="why-box">
           <p>
-            Both venues are offering what looks like the same bet, and the prices really do add
-            up to less than the payout. What cannot be checked is whether they decide the
-            outcome the same way.
+            The prices really do add up to less than the payout. What could not be verified is
+            whether the position is as safe as that arithmetic makes it look.
           </p>
+          <p>{explainNotCertified(opportunity)}</p>
           <p>
-            {opportunity.settlement?.reason ??
-              'One venue does not publish the source it settles against.'}
-          </p>
-          <p>
-            If the two sources ever disagree at the moment this settles, both of your positions
-            can lose. That is why this is shown as possible rather than guaranteed — the profit
-            is real if they agree, and the whole{' '}
-            {formatMoney(allocation.total_stake)} is at risk if they do not.
+            That is why this is shown as possible rather than guaranteed — the profit is real if
+            it holds, and the whole {formatMoney(allocation.total_stake)} is at risk if it does
+            not.
           </p>
         </div>
       )}
@@ -134,6 +130,12 @@ export function ResultCard({ opportunity, bankroll, onDetails }: Props) {
       {showHow && allocation.ok && (
         <div className="how">
           <h4>Your {allocation.legs.length === 2 ? 'two positions' : 'positions'}</h4>
+          {isSingleVenue(opportunity) && (
+            <p className="plain">
+              Both positions are at {allocation.legs[0]!.venue} — this is one market priced below
+              what it pays, not a hedge across two venues.
+            </p>
+          )}
           {allocation.legs.map((leg, index) => (
             <div className="position" key={index}>
               <div className="venue">{leg.venue}</div>

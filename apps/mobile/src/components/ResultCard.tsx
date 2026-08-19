@@ -1,5 +1,12 @@
 import { useState } from 'react';
-import { allocate, arbStatus, explainNoArbitrage, type Opportunity } from '@arbterminal/core';
+import {
+  allocate,
+  arbStatus,
+  explainNoArbitrage,
+  explainNotCertified,
+  isSingleVenue,
+  type Opportunity,
+} from '@arbterminal/core';
 import { formatMoney, formatPrice } from '../format.js';
 
 /**
@@ -74,13 +81,7 @@ export function ResultCard({ opportunity, bankroll }: Props) {
         <p className="plain">{allocation.reason}</p>
       )}
 
-      {possible && (
-        <p className="caution">
-          ⚠ We cannot guarantee this one because{' '}
-          {opportunity.settlement?.unverified_venue ?? 'one venue'} doesn’t publish enough
-          settlement information.
-        </p>
-      )}
+      {possible && <p className="caution">⚠ {explainNotCertified(opportunity)}</p>}
 
       {allocation.ok && (
         <button className="wide" onClick={() => setOpen(!open)}>
@@ -90,6 +91,12 @@ export function ResultCard({ opportunity, bankroll }: Props) {
 
       {open && allocation.ok && (
         <div className="how">
+          {isSingleVenue(opportunity) && (
+            <p className="plain">
+              Both positions are at {allocation.legs[0]!.venue} — this is one market priced
+              below what it pays, not a hedge across two venues.
+            </p>
+          )}
           {allocation.legs.map((leg, index) => (
             <div className="position" key={index}>
               <div className="venue">{leg.venue}</div>
@@ -119,10 +126,8 @@ export function ResultCard({ opportunity, bankroll }: Props) {
 
           {possible && (
             <p className="plain">
-              {opportunity.settlement?.reason ??
-                'One venue does not publish the source it settles against.'}{' '}
-              If the two sources disagree when this settles, both positions can lose, and the
-              whole {formatMoney(allocation.total_stake)} is at risk.
+              {explainNotCertified(opportunity)} The profit is real if it holds, and the whole{' '}
+              {formatMoney(allocation.total_stake)} is at risk if it does not.
             </p>
           )}
         </div>

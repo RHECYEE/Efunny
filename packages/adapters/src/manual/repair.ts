@@ -80,15 +80,46 @@ export function repairCurrencyTokens(text: string): { text: string; repaired: bo
   return { text: out, repaired };
 }
 
-/** American odds, e.g. `+400`, `-1011`. `LOCKED` and blanks are not odds. */
+/**
+ * American odds, e.g. `+400`, `-1011`. `LOCKED` and blanks are not odds.
+ *
+ * The sign is **required**. A book always writes it, so a bare `4625` is not
+ * `+4625` — it is a token the capture failed to read, and the missing
+ * character is as likely to have been a minus as a plus. Accepting it as
+ * positive odds reads a heavy favourite as a 2¢ longshot, and a 2¢ longshot
+ * against its own 88¢ YES price is a $1 payout for 90¢: a fabricated
+ * arbitrage, manufactured entirely by the parser.
+ */
 export function parseAmericanOdds(raw: string): number | null {
   const trimmed = raw.trim();
   if (trimmed === '' || /locked|susp|n\/?a/i.test(trimmed)) return null;
-  if (!/^[+-]?\d+$/.test(trimmed)) return null;
+  if (!/^[+-]\d+$/.test(trimmed)) return null;
   const value = Number(trimmed);
   // American odds are never between -100 and +100 exclusive of the extremes.
   if (!Number.isFinite(value) || value === 0 || Math.abs(value) < 100) return null;
   return value;
+}
+
+/** Probability implied by American odds, before any de-vigging. */
+function impliedProbability(american: number): number {
+  return american > 0 ? 100 / (american + 100) : -american / (-american + 100);
+}
+
+/**
+ * Flags the capture tool set on a row, as a lookup.
+ *
+ * The capture knows things about its own reliability that cannot be recovered
+ * from the numbers alone — which cell it failed to read, which side of the
+ * market was locked when it looked. Ignoring that and parsing the raw cell
+ * anyway throws away the one piece of evidence that was free.
+ */
+function flagsOf(row: CsvRow): Set<string> {
+  return new Set(
+    (row.flags ?? '')
+      .split(/[;,|]/)
+      .map((f) => f.trim().toLowerCase())
+      .filter((f) => f !== ''),
+  );
 }
 
 /** An outcome cell that is really an odds value means the columns shifted. */
@@ -121,6 +152,8 @@ export function validateRows(rows: CsvRow[], options: RepairOptions = {}): Impor
       continue;
     }
 
+    const flags = flagsOf(row);
+
     const yesOdds = parseAmericanOdds(row.yes_odds ?? '');
     if (yesOdds === null) {
       rejected.push({
@@ -129,9 +162,50 @@ export function validateRows(rows: CsvRow[], options: RepairOptions = {}): Impor
       });
       continue;
     }
-    const noOdds = parseAmericanOdds(row.no_odds ?? '');
+    if (flags.has('unparsed_yes')) {
+      rejected.push({
+        row,
+        reason: 'the capture flagged the yes price as unread, so there is no price to trust',
+      });
+      continue;
+    }
 
     const repairs: string[] = [];
+
+    // The no side survives only if the capture stands behind it. A price the
+    // tool could not read, or one it read off a locked button, is not a price
+    // somebody could have taken.
+    let noOdds = parseAmericanOdds(row.no_odds ?? '');
+    if (noOdds !== null && flags.has('unparsed_no')) {
+      repairs.push(`no side dropped: the capture flagged "${(row.no_odds ?? '').trim()}" as unread`);
+      noOdds = null;
+    }
+    if (noOdds !== null && flags.has('locked_no')) {
+      repairs.push('no side dropped: it was locked at capture time, so it was not bettable');
+      noOdds = null;
+    }
+    if (noOdds !== null && flags.has('suspect_overround')) {
+      repairs.push('no side dropped: the capture flagged this row’s two prices as inconsistent');
+      noOdds = null;
+    }
+
+    // A book's own two sides must cost more than the dollar they pay. When they
+    // do not, one of the two readings is wrong — a sportsbook does not offer a
+    // negative hold, and it certainly does not offer one to a screen capture.
+    // Which side is wrong is unknowable, so the derived side goes and the
+    // outcome's own price stays.
+    if (noOdds !== null) {
+      const total = impliedProbability(yesOdds) + impliedProbability(noOdds);
+      if (total < 1) {
+        repairs.push(
+          `no side dropped: ${yesOdds > 0 ? '+' : ''}${yesOdds} and ` +
+            `${noOdds > 0 ? '+' : ''}${noOdds} together pay more than they cost ` +
+            `(${(total * 100).toFixed(1)}% book), which no venue offers`,
+        );
+        noOdds = null;
+      }
+    }
+
     const marketRepair = repairCurrencyTokens(rawMarket);
     const outcomeRepair = repairCurrencyTokens(outcome);
     const observations = Number(row.observations ?? '0') || 0;
@@ -151,7 +225,8 @@ export function validateRows(rows: CsvRow[], options: RepairOptions = {}): Impor
     if (outcomeRepair.repaired) {
       repairs.push(`outcome "${outcome}" read as "${outcomeRepair.text}"`);
     }
-    if (noOdds === null) {
+    // Only when nothing above already explained where the no side went.
+    if (noOdds === null && !repairs.some((r) => r.startsWith('no side dropped'))) {
       repairs.push(`no side unavailable ("${(row.no_odds ?? '').trim()}"), only YES is priced`);
     }
     if (observations <= 1) {

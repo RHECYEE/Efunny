@@ -65,6 +65,14 @@ describe('odds parsing', () => {
     // Nothing between -100 and +100 is a real American price.
     expect(parseAmericanOdds('+50')).toBeNull();
   });
+
+  it('refuses unsigned numbers', () => {
+    // From a real capture: "+525" came back as "4625" with the sign lost.
+    // Read as +4625 it is a 2.1c longshot, which against the same market's
+    // own 88c yes price fabricates an arbitrage out of nothing.
+    expect(parseAmericanOdds('4625')).toBeNull();
+    expect(parseAmericanOdds('525')).toBeNull();
+  });
 });
 
 describe('OCR repair', () => {
@@ -89,6 +97,40 @@ describe('row validation', () => {
   it('accepts a clean row untouched', () => {
     const result = validateRows([base]);
     expect(result.rows).toHaveLength(1);
+    expect(result.rows[0]!.repairs).toEqual([]);
+  });
+
+  it('drops a no price the capture flagged as unread', () => {
+    const result = validateRows([{ ...base, no_odds: '+525', flags: 'unparsed_no' }]);
+    expect(result.rows).toHaveLength(1);
+    expect(result.rows[0]!.no_odds).toBeNull();
+    expect(result.rows[0]!.repairs.join(' ')).toContain('unread');
+  });
+
+  it('drops a no price that was locked at capture time', () => {
+    const result = validateRows([{ ...base, no_odds: '-1011', flags: 'locked_no' }]);
+    expect(result.rows[0]!.no_odds).toBeNull();
+    expect(result.rows[0]!.repairs.join(' ')).toContain('locked');
+  });
+
+  it('rejects the row outright when the yes price is flagged unread', () => {
+    const result = validateRows([{ ...base, flags: 'unparsed_yes' }]);
+    expect(result.rows).toHaveLength(0);
+    expect(result.rejected[0]!.reason).toContain('unread');
+  });
+
+  it('drops a no price that would make the book pay more than it costs', () => {
+    // -722 is 87.8c and +4625 is 2.1c: a 90% book. No venue offers that, so
+    // one of the two readings is wrong and the derived side goes.
+    const result = validateRows([{ ...base, yes_odds: '-722', no_odds: '+4625' }]);
+    expect(result.rows).toHaveLength(1);
+    expect(result.rows[0]!.no_odds).toBeNull();
+    expect(result.rows[0]!.repairs.join(' ')).toContain('pay more than they cost');
+  });
+
+  it('keeps a normal book with its vig intact', () => {
+    const result = validateRows([{ ...base, yes_odds: '-733', no_odds: '+525' }]);
+    expect(result.rows[0]!.no_odds).toBe(525);
     expect(result.rows[0]!.repairs).toEqual([]);
   });
 

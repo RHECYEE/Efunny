@@ -187,6 +187,49 @@ export function allocate(opportunity: Opportunity, bankroll: Money): Allocation 
 }
 
 /**
+ * One plain sentence saying why a profitable position is not guaranteed.
+ *
+ * There are several ways to fall short of certified and they are not the same
+ * problem, so this reads the actual grade rather than telling the settlement
+ * story every time. Naming settlement risk on a position whose real weakness
+ * is unobserved depth is not a simplification — it is the wrong answer, and
+ * the user cannot tell it is wrong.
+ */
+export function explainNotCertified(opportunity: Opportunity): string {
+  const settlement = opportunity.settlement;
+  if (settlement?.assurance === 'UNVERIFIABLE') {
+    return (
+      `${settlement.unverified_venue ?? 'One venue'} doesn’t publish enough settlement ` +
+      `information to confirm both sides pay out on the same result.`
+    );
+  }
+  if (opportunity.execution_quality === 'STALE') {
+    return 'These prices are old enough that they may not still be there.';
+  }
+  if (opportunity.execution_quality === 'ASSUMED_DEPTH') {
+    return (
+      'The size is an assumption, not something the venue published — you may not get ' +
+      'filled for the whole amount.'
+    );
+  }
+  if (opportunity.match_confidence < 0.95) {
+    return 'The two contracts are worded differently enough that they may not be the same bet.';
+  }
+  return 'Something about this pairing could not be verified.';
+}
+
+/**
+ * True when every leg sits at one venue.
+ *
+ * Worth saying out loud on the card. Two legs at the same book is a single
+ * market priced below its own payout, not a hedge across two venues, and the
+ * two look identical once they are reduced to a pair of dollar amounts.
+ */
+export function isSingleVenue(opportunity: Opportunity): boolean {
+  return new Set(opportunity.legs.map((l) => l.venue)).size === 1;
+}
+
+/**
  * One plain sentence saying why there is nothing to do here.
  *
  * Deliberately does not name the engine's internal categories. "Relative
