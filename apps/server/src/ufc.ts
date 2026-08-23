@@ -5,7 +5,42 @@ import {
   buildFightCards,
   type FightCard,
   type Fighter,
+  type FighterProfile,
 } from '@arbterminal/adapters';
+import { computeMismatch, type FighterStats } from '@arbterminal/core';
+import { fetchProfiles } from './ufcstatsBrowser.js';
+
+/**
+ * A career profile into the shape the mismatch model wants.
+ *
+ * The derived counts come from the fight table rather than the career box,
+ * because the career box has no denominators: it will say a fighter stops 85%
+ * of takedowns without saying whether that is off six attempts or sixty.
+ */
+function toStats(name: string, profile: FighterProfile): FighterStats {
+  const fights = profile.fights;
+  const isKo = (m: string) => /^(KO|TKO)/i.test(m);
+  return {
+    name,
+    td_per15: profile.stats.td_per15,
+    td_accuracy: profile.stats.td_accuracy,
+    td_defence: profile.stats.td_defence,
+    sub_per15: profile.stats.sub_per15,
+    slpm: profile.stats.slpm,
+    sapm: profile.stats.sapm,
+    strike_accuracy: profile.stats.strike_accuracy,
+    strike_defence: profile.stats.strike_defence,
+    reach_inches: profile.stats.reach_inches,
+    height_inches: profile.stats.height_inches,
+    fights_counted: fights.length,
+    takedowns_conceded: fights.reduce((s, f) => s + f.takedowns[1], 0),
+    knockdowns_landed: fights.reduce((s, f) => s + f.knockdowns[0], 0),
+    knockdowns_absorbed: fights.reduce((s, f) => s + f.knockdowns[1], 0),
+    ko_wins: fights.filter((f) => f.result === 'WIN' && isKo(f.method)).length,
+    submission_wins: fights.filter((f) => f.result === 'WIN' && /^SUB/i.test(f.method)).length,
+    wins: fights.filter((f) => f.result === 'WIN').length,
+  };
+}
 
 /**
  * The UFC board.
@@ -30,7 +65,8 @@ export interface UfcBoard {
     /** Fights where both fighters were found in the dossier. */
     both_known: number;
     /** Fights where both fighters have a usable style. */
-    both_styled: number;
+    /** Fights where both fighters have career statistics. */
+    both_scored: number;
     two_venue: number;
     dossier_size: number;
   };
@@ -86,14 +122,24 @@ export class UfcBoardService {
       const entries = [...k, ...p].flatMap((s) => s.markets);
       const cards = buildFightCards(entries, dossier);
 
+      // Career statistics for everyone on the card, then the grappling read.
+      // Cached names cost nothing; the budget bounds a cold first run.
+      const names = [...new Set(cards.flatMap((c) => c.sides.map((s) => s.name)))];
+      const profiles = await fetchProfiles(names, { budget: 40 });
+      for (const card of cards) {
+        const [a, b] = card.sides;
+        const pa = profiles.get(a.name);
+        const pb = profiles.get(b.name);
+        if (!pa || !pb) continue;
+        card.mismatch = computeMismatch(toStats(a.name, pa), toStats(b.name, pb));
+      }
+
       const board: UfcBoard = {
         cards,
         coverage: {
           fights: cards.length,
           both_known: cards.filter((c) => c.sides.every((s) => s.fighter !== null)).length,
-          both_styled: cards.filter((c) =>
-            c.sides.every((s) => s.fighter && s.fighter.style_class !== 'UNKNOWN'),
-          ).length,
+          both_scored: cards.filter((c) => c.mismatch !== null).length,
           two_venue: cards.filter((c) => c.venues.length > 1).length,
           dossier_size: dossier.size,
         },
@@ -108,7 +154,7 @@ export class UfcBoardService {
         cards: this.cached?.cards ?? [],
         coverage:
           this.cached?.coverage ??
-          { fights: 0, both_known: 0, both_styled: 0, two_venue: 0, dossier_size: 0 },
+          { fights: 0, both_known: 0, both_scored: 0, two_venue: 0, dossier_size: 0 },
         scanned_at: scannedAt,
         error: error instanceof Error ? error.message : String(error),
       };

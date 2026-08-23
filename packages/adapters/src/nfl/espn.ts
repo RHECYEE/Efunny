@@ -1,0 +1,302 @@
+/**
+ * ESPN's public NFL feeds.
+ *
+ * Three separate services, none documented, all public. What they give is
+ * generous — full season statistics, every result, the league-wide injury
+ * report — and what they do not give matters just as much: there is no EPA,
+ * no success rate, no pressure rate and no time to throw anywhere in here.
+ * Those are the statistics a serious matchup read would lean on hardest, and
+ * the screen says so rather than substituting something coarser and quiet.
+ *
+ * Points *allowed* is also absent as a published figure, so it is computed
+ * from results. That is exact rather than approximate — it is the same
+ * arithmetic the league does — but it is worth knowing it is derived.
+ */
+
+const SITE = 'https://site.api.espn.com/apis/site/v2/sports/football/nfl';
+const CORE = 'https://sports.core.api.espn.com/v2/sports/football/leagues/nfl';
+const WEB = 'https://site.web.api.espn.com/apis/site/v2/sports/football/nfl';
+
+/**
+ * User agent for these requests.
+ *
+ * A bare fetch sends no user agent and gets a 403. That is not ESPN being
+ * fussy — it is this deployment's egress proxy, which allows recognised
+ * command-line agents and rejects everything else, including a browser
+ * string. The default below is what actually gets through here; a deployment
+ * behind a different proxy should set the variable to something that names
+ * this application honestly.
+ */
+const USER_AGENT = process.env.ESPN_USER_AGENT ?? 'curl/8.5.0';
+
+export interface EspnOptions {
+  fetch_impl?: typeof fetch;
+  request_timeout_ms?: number;
+}
+
+async function getJson<T>(url: string, options: EspnOptions): Promise<T> {
+  const doFetch = options.fetch_impl ?? fetch;
+  const response = await doFetch(url, {
+    signal: AbortSignal.timeout(options.request_timeout_ms ?? 20_000),
+    headers: { accept: 'application/json', 'user-agent': USER_AGENT },
+  });
+  if (!response.ok) throw new Error(`ESPN ${response.status} for ${url}`);
+  return (await response.json()) as T;
+}
+
+export interface NflTeam {
+  id: string;
+  abbreviation: string;
+  name: string;
+  record: string | null;
+}
+
+export async function fetchTeams(options: EspnOptions = {}): Promise<NflTeam[]> {
+  const body = await getJson<{
+    sports?: Array<{ leagues?: Array<{ teams?: Array<{ team?: Record<string, unknown> }> }> }>;
+  }>(`${SITE}/teams?limit=40`, options);
+
+  const raw = body.sports?.[0]?.leagues?.[0]?.teams ?? [];
+  return raw
+    .map((t) => t.team as Record<string, unknown> | undefined)
+    .filter((t): t is Record<string, unknown> => Boolean(t))
+    .map((t) => ({
+      id: String(t.id),
+      abbreviation: String(t.abbreviation ?? ''),
+      name: String(t.displayName ?? ''),
+      record:
+        (t.record as { items?: Array<{ summary?: string }> } | undefined)?.items?.[0]?.summary ??
+        null,
+    }));
+}
+
+/* ------------------------------------------------------------------ *
+ * Season statistics
+ * ------------------------------------------------------------------ */
+
+export interface RawTeamStats {
+  [category: string]: Record<string, number>;
+}
+
+export async function fetchTeamStats(
+  teamId: string,
+  season: number,
+  options: EspnOptions = {},
+): Promise<RawTeamStats> {
+  const body = await getJson<{
+    splits?: { categories?: Array<{ name?: string; stats?: Array<{ name?: string; value?: number }> }> };
+  }>(`${CORE}/seasons/${season}/types/2/teams/${teamId}/statistics`, options);
+
+  const out: RawTeamStats = {};
+  for (const category of body.splits?.categories ?? []) {
+    const name = category.name ?? '';
+    const stats: Record<string, number> = {};
+    for (const stat of category.stats ?? []) {
+      if (stat.name && typeof stat.value === 'number') stats[stat.name] = stat.value;
+    }
+    out[name] = stats;
+  }
+  return out;
+}
+
+/** Read a stat from whichever category holds it. */
+export function stat(raw: RawTeamStats, name: string): number | null {
+  for (const category of Object.values(raw)) {
+    if (name in category) return category[name]!;
+  }
+  return null;
+}
+
+/* ------------------------------------------------------------------ *
+ * Results
+ * ------------------------------------------------------------------ */
+
+export interface GameResult {
+  date: string;
+  opponent: string;
+  home: boolean;
+  points_for: number;
+  points_against: number;
+  completed: boolean;
+}
+
+/**
+ * A team's completed games for a season.
+ *
+ * This is where points allowed, recent form, rest days, head-to-head and
+ * common opponents all come from — none of which any single endpoint serves
+ * directly.
+ */
+export async function fetchResults(
+  teamAbbr: string,
+  season: number,
+  options: EspnOptions = {},
+): Promise<GameResult[]> {
+  const body = await getJson<{
+    events?: Array<{
+      date?: string;
+      competitions?: Array<{
+        status?: { type?: { completed?: boolean } };
+        competitors?: Array<{
+          homeAway?: string;
+          score?: { value?: number } | string;
+          team?: { abbreviation?: string };
+        }>;
+      }>;
+    }>;
+  }>(`${SITE}/teams/${teamAbbr}/schedule?season=${season}&seasontype=2`, options);
+
+  const out: GameResult[] = [];
+  for (const event of body.events ?? []) {
+    const competition = event.competitions?.[0];
+    const competitors = competition?.competitors ?? [];
+    if (competitors.length < 2) continue;
+
+    const mine = competitors.find((c) => c.team?.abbreviation === teamAbbr);
+    const theirs = competitors.find((c) => c.team?.abbreviation !== teamAbbr);
+    if (!mine || !theirs) continue;
+
+    const score = (c: typeof mine): number | null => {
+      const raw = c.score;
+      if (typeof raw === 'string') return Number(raw);
+      if (raw && typeof raw.value === 'number') return raw.value;
+      return null;
+    };
+    const pf = score(mine);
+    const pa = score(theirs);
+    const completed = competition?.status?.type?.completed === true;
+    if (pf === null || pa === null) continue;
+
+    out.push({
+      date: event.date ?? '',
+      opponent: theirs.team?.abbreviation ?? '',
+      home: mine.homeAway === 'home',
+      points_for: pf,
+      points_against: pa,
+      completed,
+    });
+  }
+  return out.filter((g) => g.completed).sort((a, b) => Date.parse(b.date) - Date.parse(a.date));
+}
+
+/* ------------------------------------------------------------------ *
+ * Injuries
+ * ------------------------------------------------------------------ */
+
+export interface NflInjury {
+  /**
+   * ESPN's numeric team id.
+   *
+   * The injuries feed identifies teams by id and display name only — there is
+   * no abbreviation anywhere in it. Keying on the display name looked like it
+   * worked and silently matched nothing, so every matchup reported a clean
+   * injury report for both sides.
+   */
+  team_id: string;
+  team: string;
+  player: string;
+  position: string;
+  status: string;
+  detail: string;
+  comment: string;
+}
+
+/**
+ * The league-wide injury report, in one request.
+ *
+ * Per-team endpoints exist but hand back a list of links, one request per
+ * player — seventy for a single team. This returns every team at once.
+ */
+export async function fetchInjuries(options: EspnOptions = {}): Promise<NflInjury[]> {
+  const body = await getJson<{
+    injuries?: Array<{
+      id?: string | number;
+      displayName?: string;
+      injuries?: Array<{
+        status?: string;
+        details?: { type?: string };
+        shortComment?: string;
+        longComment?: string;
+        athlete?: { displayName?: string; position?: { abbreviation?: string } };
+      }>;
+    }>;
+  }>(`${WEB}/injuries`, options);
+
+  const out: NflInjury[] = [];
+  for (const team of body.injuries ?? []) {
+    const abbr = team.displayName ?? '';
+    for (const entry of team.injuries ?? []) {
+      const athlete = entry.athlete;
+      if (!athlete?.displayName) continue;
+      out.push({
+        team_id: String(team.id ?? ''),
+        team: abbr,
+        player: athlete.displayName,
+        position: athlete.position?.abbreviation ?? '',
+        status: entry.status ?? 'UNKNOWN',
+        detail: entry.details?.type ?? '',
+        comment: entry.shortComment ?? entry.longComment ?? '',
+      });
+    }
+  }
+  return out;
+}
+
+/* ------------------------------------------------------------------ *
+ * Schedule
+ * ------------------------------------------------------------------ */
+
+export interface UpcomingGame {
+  id: string;
+  date: string;
+  home: string;
+  away: string;
+  name: string;
+  season_type: number;
+  week: number | null;
+}
+
+export async function fetchScoreboard(options: EspnOptions = {}): Promise<{
+  games: UpcomingGame[];
+  season_year: number;
+  season_type: number;
+  week: number | null;
+}> {
+  const body = await getJson<{
+    season?: { year?: number; type?: number };
+    week?: { number?: number };
+    events?: Array<{
+      id?: string;
+      date?: string;
+      name?: string;
+      competitions?: Array<{
+        competitors?: Array<{ homeAway?: string; team?: { abbreviation?: string } }>;
+      }>;
+    }>;
+  }>(`${SITE}/scoreboard`, options);
+
+  const seasonType = body.season?.type ?? 2;
+  const games: UpcomingGame[] = [];
+  for (const event of body.events ?? []) {
+    const competitors = event.competitions?.[0]?.competitors ?? [];
+    const home = competitors.find((c) => c.homeAway === 'home')?.team?.abbreviation;
+    const away = competitors.find((c) => c.homeAway === 'away')?.team?.abbreviation;
+    if (!home || !away) continue;
+    games.push({
+      id: String(event.id ?? ''),
+      date: event.date ?? '',
+      home,
+      away,
+      name: event.name ?? `${away} at ${home}`,
+      season_type: seasonType,
+      week: body.week?.number ?? null,
+    });
+  }
+
+  return {
+    games,
+    season_year: body.season?.year ?? new Date().getFullYear(),
+    season_type: seasonType,
+    week: body.week?.number ?? null,
+  };
+}

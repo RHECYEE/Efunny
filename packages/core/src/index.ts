@@ -27,6 +27,9 @@ export * from './arb/engine.js';
 
 export * from './paper/simulator.js';
 export * from './portfolio/allocation.js';
+export * from './ufc/mismatch.js';
+export * from './nfl/projection.js';
+export * from './nfl/diff.js';
 export * from './scanner/series.js';
 export * from './scanner/metrics.js';
 export * from './scanner/score.js';

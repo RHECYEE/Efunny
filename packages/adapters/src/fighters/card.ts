@@ -1,4 +1,5 @@
 import type { Market, Quote } from '@arbterminal/core';
+import { type GrapplingMismatch } from '@arbterminal/core';
 import { type Fighter, isBrazilian, lookup, nameKey } from './dossier.js';
 
 /**
@@ -39,8 +40,20 @@ export interface FightCard {
    * only one venue prices the fight.
    */
   divergence: number | null;
-  /** Both fighters classified, and on opposite sides of the style divide. */
-  style_clash: boolean;
+  /**
+   * The grappling read, when both fighters have career statistics.
+   *
+   * This replaces the old style-label comparison entirely. A belt is not a
+   * behaviour, and the previous flag treated a submission specialist who
+   * never shoots as the wrestler in a striker-versus-grappler matchup — the
+   * one reading that inverts the whole thesis.
+   */
+  mismatch: GrapplingMismatch | null;
+  /**
+   * Nationality flag, carried for scouting and given no predictive weight
+   * anywhere. Brazil produces outstanding grapplers; being Brazilian is not
+   * evidence that this particular fighter is one.
+   */
   brazilian: boolean;
   venues: string[];
 }
@@ -148,7 +161,7 @@ export function buildFightCards(
       when: group.when,
       sides,
       divergence: divergenceOf(sides),
-      style_clash: isStyleClash(fighterA, fighterB),
+      mismatch: null,
       brazilian: (fighterA ? isBrazilian(fighterA) : false) || (fighterB ? isBrazilian(fighterB) : false),
       venues,
     });

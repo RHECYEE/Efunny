@@ -31,6 +31,9 @@ export {
   toEvent as polymarketToEvent,
 } from './polymarket/normalize.js';
 export * from './history/index.js';
+export * from './nfl/espn.js';
+export * from './nfl/stadiums.js';
+export * from './fighters/ufcstats.js';
 export * from './fighters/dossier.js';
 export * from './fighters/card.js';
 export * from './manual/csv.js';

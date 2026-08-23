@@ -10,14 +10,15 @@ import { Filters } from './components/Filters.js';
 import { PaperTradeDialog } from './components/PaperTradeDialog.js';
 import { UfcBoard } from './components/UfcBoard.js';
 import { Scanner } from './components/Scanner.js';
+import { NflBoard } from './components/NflBoard.js';
 import { Portfolio } from './components/Portfolio.js';
 
-type Tab = 'PREDICTION' | 'SPORTS' | 'UFC' | 'SCANNER' | 'CART' | 'PORTFOLIO';
+type Tab = 'ARBITRAGE' | 'NFL' | 'UFC' | 'FEATURED' | 'CART' | 'PORTFOLIO';
 
 const POLL_MS = 10_000;
 
 export function App() {
-  const [tab, setTab] = useState<Tab>('PREDICTION');
+  const [tab, setTab] = useState<Tab>('ARBITRAGE');
   const [filter, setFilter] = useState<OpportunityFilter>({});
   const [opportunities, setOpportunities] = useState<Opportunity[]>([]);
   const [totalBeforeFilter, setTotalBeforeFilter] = useState(0);
@@ -35,12 +36,16 @@ export function App() {
   const [showRejected, setShowRejected] = useState(false);
   const [showFilters, setShowFilters] = useState(false);
 
-  const section: Section = tab === 'SPORTS' ? 'SPORTS' : 'PREDICTION';
+  // One arbitrage tab covers both sections. Splitting prediction markets from
+  // sports was a distinction about where a contract is listed, not about
+  // whether it is a hedge, and it hid half the opportunities behind a tab
+  // nobody had a reason to click.
+  const section: Section | undefined = undefined;
 
   const load = useCallback(async () => {
     try {
       const [opportunityResponse, statusResponse] = await Promise.all([
-        api.opportunities({ ...filter, section }),
+        api.opportunities(section ? { ...filter, section } : filter),
         api.status(),
       ]);
       setOpportunities(opportunityResponse.opportunities);
@@ -95,10 +100,10 @@ export function App() {
         <div className="tabs">
           {(
             [
-              ['PREDICTION', 'Predictions'],
-              ['SPORTS', 'Sports'],
+              ['ARBITRAGE', 'Arbitrage'],
+              ['NFL', 'NFL'],
               ['UFC', 'UFC'],
-              ['SCANNER', 'Interesting'],
+              ['FEATURED', 'Featured'],
               ['CART', 'Cart'],
               ['PORTFOLIO', 'Paper portfolio'],
             ] as Array<[Tab, string]>
@@ -141,8 +146,8 @@ export function App() {
           executable edge, match confidence, units of a position. Neither
           answers "is there an arbitrage", so neither sits in front of the
           results any more. */}
-      <div className={`body single${showFilters && tab !== 'PORTFOLIO' && tab !== 'CART' && tab !== 'UFC' && tab !== 'SCANNER' ? ' with-rail' : ''}`}>
-        {showFilters && tab !== 'PORTFOLIO' && tab !== 'CART' && tab !== 'UFC' && tab !== 'SCANNER' && (
+      <div className={`body single${showFilters && tab !== 'PORTFOLIO' && tab !== 'CART' && tab !== 'UFC' && tab !== 'NFL' && tab !== 'FEATURED' ? ' with-rail' : ''}`}>
+        {showFilters && tab !== 'PORTFOLIO' && tab !== 'CART' && tab !== 'UFC' && tab !== 'NFL' && tab !== 'FEATURED' && (
           <Filters
             filter={filter}
             onChange={setFilter}
@@ -171,7 +176,9 @@ export function App() {
             />
           ) : tab === 'UFC' ? (
             <UfcBoard />
-          ) : tab === 'SCANNER' ? (
+          ) : tab === 'NFL' ? (
+            <NflBoard />
+          ) : tab === 'FEATURED' ? (
             <Scanner />
           ) : tab === 'PORTFOLIO' ? (
             <Portfolio refreshKey={portfolioKey} />

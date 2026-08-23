@@ -44,9 +44,27 @@ interface FightCard {
   when: string | null;
   sides: [FightSide, FightSide];
   divergence: number | null;
-  style_clash: boolean;
+  mismatch: Mismatch | null;
   brazilian: boolean;
   venues: string[];
+}
+
+interface MismatchComponent {
+  name: string;
+  label: string;
+  value: number | null;
+  weight: number;
+  detail: string;
+}
+
+interface Mismatch {
+  score: number;
+  grappler: string | null;
+  striker: string | null;
+  role_basis: string;
+  components: MismatchComponent[];
+  not_modelled: string[];
+  no_grappler: boolean;
 }
 
 interface Board {
@@ -54,7 +72,7 @@ interface Board {
   coverage: {
     fights: number;
     both_known: number;
-    both_styled: number;
+    both_scored: number;
     two_venue: number;
     dossier_size: number;
   };
@@ -63,6 +81,15 @@ interface Board {
 }
 
 type Filter = 'ALL' | 'BRAZILIAN' | 'CLASH' | 'TWO_VENUE';
+
+/** How lopsided, in words. Mirrors the core labels. */
+function band(score: number): string {
+  if (score >= 75) return 'Severe';
+  if (score >= 60) return 'Large';
+  if (score >= 45) return 'Moderate';
+  if (score >= 30) return 'Slight';
+  return 'Minimal';
+}
 
 const STYLE_MARK: Record<string, string> = {
   GRAPPLER: 'grappler',
@@ -97,7 +124,7 @@ export function UfcBoard() {
 
   const shown = board.cards.filter((c) => {
     if (filter === 'BRAZILIAN') return c.brazilian;
-    if (filter === 'CLASH') return c.style_clash;
+    if (filter === 'CLASH') return (c.mismatch?.score ?? 0) >= 45;
     if (filter === 'TWO_VENUE') return c.venues.length > 1;
     return true;
   });
@@ -111,7 +138,7 @@ export function UfcBoard() {
           [
             ['ALL', `All ${board.coverage.fights}`],
             ['BRAZILIAN', 'Brazilians'],
-            ['CLASH', 'Grappler vs striker'],
+            ['CLASH', 'Grappling mismatch'],
             ['TWO_VENUE', `Both venues ${board.coverage.two_venue}`],
           ] as Array<[Filter, string]>
         ).map(([value, label]) => (
@@ -129,9 +156,9 @@ export function UfcBoard() {
         <div className="empty">
           <strong>Nothing on this card matches</strong>
           {filter === 'CLASH'
-            ? `Style needs both fighters classified, and only ${board.coverage.both_styled} of ` +
-              `${board.coverage.fights} fights on this card have that. Prospects on a ` +
-              `preliminary card are rarely in any public dataset.`
+            ? `A grappling read needs career statistics for both fighters, and ` +
+              `${board.coverage.both_scored} of ${board.coverage.fights} fights on this card ` +
+              `have them. Debutants have no record to read.`
             : 'Try another filter.'}
         </div>
       ) : (
@@ -146,7 +173,11 @@ export function UfcBoard() {
                 <h3>{card.title}</h3>
                 <div className="tags">
                   {card.brazilian && <span className="tag br">Brazil</span>}
-                  {card.style_clash && <span className="tag clash">Style clash</span>}
+                  {card.mismatch && !card.mismatch.no_grappler && (
+                    <span className="tag clash">
+                      Grappling {card.mismatch.score} · {band(card.mismatch.score)}
+                    </span>
+                  )}
                   {card.venues.length > 1 && card.divergence !== null && (
                     <span className="tag div">
                       {(card.divergence / 10).toFixed(1)}¢ apart
@@ -159,12 +190,20 @@ export function UfcBoard() {
                 <div className="corner" key={side.name}>
                   <div className="who">
                     <span className="fname">{side.name}</span>
-                    <span className={`style ${STYLE_MARK[side.fighter?.style_class ?? 'UNKNOWN']}`}>
-                      {side.fighter
-                        ? side.fighter.style_class === 'UNKNOWN'
-                          ? 'style unknown'
-                          : side.fighter.style_class.toLowerCase()
-                        : 'not in dossier'}
+                    <span
+                      className={`style ${
+                        card.mismatch?.grappler === side.name
+                          ? 'grappler'
+                          : card.mismatch?.striker === side.name
+                            ? 'striker'
+                            : 'unknown'
+                      }`}
+                    >
+                      {card.mismatch?.grappler === side.name
+                        ? 'takedown pressure'
+                        : card.mismatch?.striker === side.name
+                          ? 'striking side'
+                          : 'no career stats'}
                     </span>
                     {side.fighter?.nationality && (
                       <span className="nat">{side.fighter.nationality}</span>
@@ -189,33 +228,75 @@ export function UfcBoard() {
 
               {open === card.fight_id && (
                 <div className="fight-detail">
-                  {card.sides.map((side) => (
-                    <div key={side.name}>
-                      <b>{side.name}</b>
-                      {side.fighter ? (
-                        <ul>
-                          {side.fighter.record && <li>Record {side.fighter.record}</li>}
-                          {side.fighter.nickname && <li>“{side.fighter.nickname}”</li>}
-                          <li>
-                            {side.fighter.style_label ?? 'No style published'}
-                            {side.fighter.style_source && (
-                              <span className="src"> — {side.fighter.style_source}</span>
-                            )}
-                          </li>
-                          <li>
-                            {side.fighter.nationality ?? 'Nationality unknown'}
-                            {side.fighter.nationality_source && (
-                              <span className="src"> — {side.fighter.nationality_source}</span>
-                            )}
-                          </li>
-                        </ul>
+                  {card.mismatch ? (
+                    <div className="mismatch">
+                      {card.mismatch.no_grappler ? (
+                        <p className="src">{card.mismatch.role_basis}</p>
                       ) : (
-                        <p className="src">
-                          No public record found for this name. Nothing is inferred in its place.
-                        </p>
+                        <>
+                          <div className="mm-head">
+                            <b>
+                              Grappling mismatch {card.mismatch.score}/100 ·{' '}
+                              {band(card.mismatch.score)}
+                            </b>
+                          </div>
+                          <p className="src">{card.mismatch.role_basis}</p>
+                          {card.mismatch.components.map((c) => (
+                            <div className="mm-row" key={c.name}>
+                              <span className="mm-l">{c.label}</span>
+                              <span className="mm-b">
+                                <span style={{ width: `${(c.value ?? 0) * 100}%` }} />
+                              </span>
+                              <span className="mm-v">
+                                {c.value === null ? 'n/a' : Math.round(c.value * 100)}
+                              </span>
+                              <span className="mm-d">{c.detail}</span>
+                            </div>
+                          ))}
+                        </>
                       )}
+                      <details className="mm-gaps">
+                        <summary>What this does not measure</summary>
+                        <ul>
+                          {card.mismatch.not_modelled.map((n) => (
+                            <li key={n}>{n}</li>
+                          ))}
+                        </ul>
+                      </details>
+                      <p className="src">
+                        This is a read on how the fight is likely to be contested. It is not a
+                        win probability, and no value claim follows from it — a fighter being
+                        likely to win does not make his price a good one.
+                      </p>
                     </div>
-                  ))}
+                  ) : (
+                    <p className="src">
+                      No career statistics for one or both fighters, so no grappling read.
+                      Nothing is inferred in its place.
+                    </p>
+                  )}
+
+                  <div className="bios">
+                    {card.sides.map((side) => (
+                      <div key={side.name}>
+                        <b>{side.name}</b>
+                        {side.fighter ? (
+                          <ul>
+                            {side.fighter.record && <li>Record {side.fighter.record}</li>}
+                            {side.fighter.nickname && <li>“{side.fighter.nickname}”</li>}
+                            <li>
+                              {side.fighter.nationality ?? 'Nationality unknown'}
+                              {side.fighter.nationality_source && (
+                                <span className="src"> — {side.fighter.nationality_source}</span>
+                              )}
+                            </li>
+                          </ul>
+                        ) : (
+                          <p className="src">No public record found for this name.</p>
+                        )}
+                      </div>
+                    ))}
+                  </div>
                 </div>
               )}
             </article>
@@ -224,9 +305,9 @@ export function UfcBoard() {
       )}
 
       <div className="showing">
-        {board.coverage.both_known} of {board.coverage.fights} fights have both fighters on
-        record; {board.coverage.both_styled} have a style for both. Prices are what it costs to
-        back each fighter, not an arbitrage.
+        {board.coverage.both_scored} of {board.coverage.fights} fights have career statistics
+        for both fighters. Prices are what it costs to back each fighter — not an arbitrage, and
+        not a prediction.
       </div>
     </>
   );

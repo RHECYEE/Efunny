@@ -5,6 +5,8 @@ import {
   classifyStyle,
   isStyleClash,
   nameKey,
+  parseCareerStats,
+  parseFightRow,
   type Fighter,
 } from '../src/index.js';
 import { venueApiProvenance, type Market, type Quote } from '@arbterminal/core';
@@ -127,5 +129,53 @@ describe('fight cards', () => {
   it('does not invent a fight from a one-sided listing alone', () => {
     const cards = buildFightCards([mk('kalshi', 'Yadong Song', null, 230)], new Map());
     expect(cards).toHaveLength(0);
+  });
+});
+
+describe('UFCStats parsing', () => {
+  // The career box exactly as the rendered page lays it out.
+  const page = [
+    "HEIGHT: 5' 10\"",
+    'WEIGHT: 155 lbs.',
+    'REACH: 74"',
+    'STANCE: Orthodox',
+    'DOB: Oct 17, 1989',
+    'CAREER STATISTICS:',
+    'SLpM: 3.23',
+    'Str. Acc.: 55%',
+    'SApM: 3.05',
+    'Str. Def: 48%',
+    'TD Avg.: 2.29',
+    'TD Acc.: 39%',
+    'TD Def.: 54%',
+    'Sub. Avg.: 2.6',
+    'SLpM - Significant Strikes Landed per Minute',
+  ].join('\n');
+
+  it('reads every statistic, including the ones with dots in the label', () => {
+    // Pre-escaping the labels double-escaped them, so every field containing
+    // a full stop silently parsed as null and a fighter looked like he had
+    // no takedown record at all.
+    const s = parseCareerStats(page);
+    expect(s.slpm).toBe(3.23);
+    expect(s.td_per15).toBe(2.29);
+    expect(s.td_accuracy).toBeCloseTo(0.39, 5);
+    expect(s.td_defence).toBeCloseTo(0.54, 5);
+    expect(s.sub_per15).toBe(2.6);
+    expect(s.strike_defence).toBeCloseTo(0.48, 5);
+    expect(s.height_inches).toBe(70);
+    expect(s.reach_inches).toBe(74);
+  });
+
+  it('splits a fight row into both fighters\' numbers', () => {
+    const row = parseFightRow(
+      ['WIN', 'Charles Oliveira Max Holloway', '0 0', '50 26', '5 0', '4 0',
+       'UFC 326 Mar. 07, 2026', 'U-DEC', '5', '5:00'],
+      'Charles Oliveira',
+    );
+    expect(row?.opponent).toBe('Max Holloway');
+    expect(row?.takedowns).toEqual([5, 0]);
+    expect(row?.submission_attempts).toEqual([4, 0]);
+    expect(row?.result).toBe('WIN');
   });
 });

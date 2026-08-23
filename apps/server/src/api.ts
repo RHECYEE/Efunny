@@ -1,6 +1,7 @@
 import Fastify, { type FastifyInstance } from 'fastify';
 import { UfcBoardService } from './ufc.js';
 import { ScannerService } from './scanner.js';
+import { NflService } from './nfl.js';
 import {
   consensusFor,
   countOpportunities,
@@ -69,6 +70,7 @@ export interface ApiDeps {
   adapters: VenueAdapter[];
   ufc?: UfcBoardService;
   scanner?: ScannerService;
+  nfl?: NflService;
 }
 
 export function buildApi(deps: ApiDeps): FastifyInstance {
@@ -76,6 +78,7 @@ export function buildApi(deps: ApiDeps): FastifyInstance {
   const { pipeline, store, adapters } = deps;
   const ufc = deps.ufc ?? new UfcBoardService();
   const scanner = deps.scanner ?? new ScannerService();
+  const nfl = deps.nfl ?? new NflService();
 
   app.get('/api/health', async () => ({ ok: true, time: new Date().toISOString() }));
 
@@ -86,6 +89,16 @@ export function buildApi(deps: ApiDeps): FastifyInstance {
   app.get('/api/ufc', async () => ufc.board());
 
   app.get('/api/scanner', async () => scanner.feed());
+
+  app.get('/api/nfl', async () => nfl.board());
+
+  app.get('/api/nfl/matchup', async (request, reply) => {
+    const q = request.query as Record<string, string>;
+    if (!q.home || !q.away) return reply.code(400).send({ error: 'home and away required' });
+    const view = await nfl.matchup(q.home, q.away);
+    if (!view) return reply.code(404).send({ error: 'no data for that matchup' });
+    return view;
+  });
 
   app.get('/api/opportunities', async (request) => {
     const filter = parseFilter(request.query as Record<string, unknown>);
