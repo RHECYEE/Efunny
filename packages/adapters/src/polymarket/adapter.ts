@@ -54,6 +54,8 @@ export class PolymarketAdapter implements VenueAdapter {
   private readonly tagSlugs: string[];
   /** canonical market id -> clob token ids, for `fetchQuotes`. */
   private readonly tokenIndex = new Map<string, { yes: string | null; no: string | null }>();
+  /** canonical market id -> condition id, which is what the trade feed keys on. */
+  private readonly conditionIndex = new Map<string, string>();
   /** canonical market id -> the normalized market, for `fetchQuotes`. */
   private readonly marketIndex = new Map<string, MarketSnapshot['market']>();
 
@@ -122,6 +124,7 @@ export class PolymarketAdapter implements VenueAdapter {
           category,
         );
         this.tokenIndex.set(market.market_id, { yes, no });
+        if (raw.conditionId) this.conditionIndex.set(market.market_id, raw.conditionId);
         this.marketIndex.set(market.market_id, market);
 
         marketSnapshots.push({ market, quote: toQuote(raw, market, book, now) });
@@ -151,6 +154,11 @@ export class PolymarketAdapter implements VenueAdapter {
    */
   tokensFor(marketId: string): { yes: string | null; no: string | null } | null {
     return this.tokenIndex.get(marketId) ?? null;
+  }
+
+  /** Condition id, which the trade feed keys on rather than the token id. */
+  conditionFor(marketId: string): string | null {
+    return this.conditionIndex.get(marketId) ?? null;
   }
 
   async fetchQuotes(marketIds: string[], options: FetchOptions = {}): Promise<Quote[]> {

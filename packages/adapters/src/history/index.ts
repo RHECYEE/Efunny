@@ -143,3 +143,114 @@ export async function polymarketHistory(
   points.sort((a, b) => a.t - b.t);
   return { market_id: marketId, venue: 'polymarket', points, has_volume: false };
 }
+
+/* ------------------------------------------------------------------ *
+ * Trades
+ * ------------------------------------------------------------------ */
+
+/**
+ * Individual fills, which are a different object from a candle.
+ *
+ * A candle says the price moved and how much traded. It cannot say whether
+ * that came from four hundred small orders or one large one, and those are
+ * opposite pieces of evidence about who is doing the trading. Trade-level
+ * data is the only way to tell them apart.
+ */
+export interface Trade {
+  /** Unix seconds. */
+  t: number;
+  /** Contracts. */
+  size: number;
+  /** Price paid, in deci-cents. */
+  price: number;
+  /** Which side the aggressor took, where the venue says. */
+  taker_side: 'YES' | 'NO' | null;
+  /** Venue-flagged block or negotiated trade. */
+  block: boolean;
+}
+
+interface KalshiTrade {
+  created_time?: string;
+  count_fp?: string;
+  count?: number;
+  yes_price_dollars?: string;
+  taker_side?: string;
+  is_block_trade?: boolean;
+}
+
+export async function kalshiTrades(
+  ticker: string,
+  options: HistoryOptions & { limit?: number } = {},
+): Promise<Trade[]> {
+  const doFetch = options.fetch_impl ?? fetch;
+  const url =
+    `https://api.elections.kalshi.com/trade-api/v2/markets/trades` +
+    `?ticker=${encodeURIComponent(ticker)}&limit=${options.limit ?? 200}`;
+  const response = await doFetch(url, {
+    signal: AbortSignal.timeout(options.request_timeout_ms ?? 20_000),
+    headers: { accept: 'application/json' },
+  });
+  if (!response.ok) throw new Error(`Kalshi trades ${response.status}`);
+  const body = (await response.json()) as { trades?: KalshiTrade[] };
+
+  const out: Trade[] = [];
+  for (const trade of body.trades ?? []) {
+    const size = Number(trade.count_fp ?? trade.count ?? 0);
+    if (!Number.isFinite(size) || size <= 0) continue;
+    out.push({
+      t: Math.floor(Date.parse(trade.created_time ?? '') / 1000),
+      size,
+      price: trade.yes_price_dollars ? parseDecimalToDeciCents(trade.yes_price_dollars) : 0,
+      taker_side:
+        trade.taker_side === 'yes' ? 'YES' : trade.taker_side === 'no' ? 'NO' : null,
+      block: trade.is_block_trade === true,
+    });
+  }
+  return out.filter((t) => Number.isFinite(t.t)).sort((a, b) => a.t - b.t);
+}
+
+interface PolymarketTrade {
+  size?: number;
+  price?: number;
+  timestamp?: number;
+  side?: string;
+  asset?: string;
+}
+
+/**
+ * Fills for one Polymarket market, keyed by *condition id*.
+ *
+ * Not by token id. The endpoint accepts an `asset` parameter and appears to
+ * work, but it does not filter on it — asking for a politics token returns
+ * trades from an unrelated esports match, and every one of them would have
+ * been attributed to the market that asked. `market=<conditionId>` is the
+ * parameter that actually narrows the result, which is worth stating plainly
+ * because the broken one fails silently and looks like data.
+ */
+export async function polymarketTrades(
+  conditionId: string,
+  options: HistoryOptions & { limit?: number } = {},
+): Promise<Trade[]> {
+  const doFetch = options.fetch_impl ?? fetch;
+  const url =
+    `https://data-api.polymarket.com/trades?market=${encodeURIComponent(conditionId)}` +
+    `&limit=${options.limit ?? 200}`;
+  const response = await doFetch(url, {
+    signal: AbortSignal.timeout(options.request_timeout_ms ?? 20_000),
+    headers: { accept: 'application/json' },
+  });
+  if (!response.ok) throw new Error(`Polymarket trades ${response.status}`);
+  const body = (await response.json()) as PolymarketTrade[];
+
+  return (Array.isArray(body) ? body : [])
+    .filter((t) => Number.isFinite(t.size) && Number.isFinite(t.timestamp))
+    .map((t) => ({
+      t: Number(t.timestamp),
+      size: Number(t.size),
+      price: Math.round(Number(t.price ?? 0) * 1000),
+      taker_side: t.side === 'BUY' ? ('YES' as const) : t.side === 'SELL' ? ('NO' as const) : null,
+      // Polymarket does not flag block trades on this feed.
+      block: false,
+    }))
+    .sort((a, b) => a.t - b.t);
+}

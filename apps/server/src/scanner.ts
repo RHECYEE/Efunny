@@ -2,9 +2,20 @@ import {
   KalshiAdapter,
   PolymarketAdapter,
   kalshiHistory,
+  kalshiTrades,
   polymarketHistory,
+  polymarketTrades,
 } from '@arbterminal/adapters';
-import { analyze, computeMetrics, rank, type ScoredMarket } from '@arbterminal/core';
+import {
+  analyze,
+  computeMetrics,
+  computeReversion,
+  computeTradeMetrics,
+  findCrossMarketGaps,
+  rank,
+  type CrossMarketGap,
+  type ScoredMarket,
+} from '@arbterminal/core';
 
 /**
  * The market scanner.
@@ -84,29 +95,44 @@ export class ScannerService {
         .sort((a, b) => (b.quote.liquidity ?? 0) - (a.quote.liquidity ?? 0))
         .slice(0, Math.floor(this.historyBudget * 0.3));
 
+      // Cross-market gaps are computed once over everything, then attached
+      // per market — the pairing is symmetric and doing it per row would
+      // repeat the same comparison in both directions.
+      const gaps = findCrossMarketGaps([...kalshiEntries, ...polyEntries]);
+      const gapsFor = (marketId: string) =>
+        gaps
+          .filter((g) => g.left_market_id === marketId || g.right_market_id === marketId)
+          .map((g: CrossMarketGap) =>
+            g.left_market_id === marketId
+              ? { venue: g.right_venue, gap: g.gap, their_price: g.right_price }
+              : { venue: g.left_venue, gap: g.gap, their_price: g.left_price },
+          );
+
       for (const entry of kalshiEntries) {
         requested += 1;
         const ticker = entry.market.venue_market_id;
         try {
-          const history = await kalshiHistory(
-            ticker.split('-')[0]!,
-            ticker,
-            entry.market.market_id,
-          );
+          const [history, trades] = await Promise.all([
+            kalshiHistory(ticker.split('-')[0]!, ticker, entry.market.market_id),
+            kalshiTrades(ticker).catch(() => []),
+          ]);
           if (history.points.length < 6) continue;
+          const metrics = computeMetrics({
+            market_id: entry.market.market_id,
+            venue: 'kalshi',
+            title: entry.market.title,
+            history,
+            book: entry.quote.book,
+            // One matched ladder viewed from two sides.
+            independent_sides: false,
+            close_time: entry.market.close_time,
+          });
           scored.push(
-            analyze(
-              computeMetrics({
-                market_id: entry.market.market_id,
-                venue: 'kalshi',
-                title: entry.market.title,
-                history,
-                book: entry.quote.book,
-                // One matched ladder viewed from two sides.
-                independent_sides: false,
-                close_time: entry.market.close_time,
-              }),
-            ),
+            analyze(metrics, {
+              trades: computeTradeMetrics(trades),
+              reversion: computeReversion(metrics, history),
+              cross_market: gapsFor(entry.market.market_id),
+            }),
           );
         } catch {
           failed += 1;
@@ -118,20 +144,27 @@ export class ScannerService {
         try {
           const tokens = polymarket.tokensFor(entry.market.market_id);
           if (!tokens?.yes) continue;
-          const history = await polymarketHistory(tokens.yes, entry.market.market_id);
+          const condition = polymarket.conditionFor(entry.market.market_id);
+          const [history, trades] = await Promise.all([
+            polymarketHistory(tokens.yes, entry.market.market_id),
+            condition ? polymarketTrades(condition).catch(() => []) : Promise.resolve([]),
+          ]);
           if (history.points.length < 6) continue;
+          const metrics = computeMetrics({
+            market_id: entry.market.market_id,
+            venue: 'polymarket',
+            title: entry.market.title,
+            history,
+            book: entry.quote.book,
+            independent_sides: true,
+            close_time: entry.market.close_time,
+          });
           scored.push(
-            analyze(
-              computeMetrics({
-                market_id: entry.market.market_id,
-                venue: 'polymarket',
-                title: entry.market.title,
-                history,
-                book: entry.quote.book,
-                independent_sides: true,
-                close_time: entry.market.close_time,
-              }),
-            ),
+            analyze(metrics, {
+              trades: computeTradeMetrics(trades),
+              reversion: computeReversion(metrics, history),
+              cross_market: gapsFor(entry.market.market_id),
+            }),
           );
         } catch {
           failed += 1;

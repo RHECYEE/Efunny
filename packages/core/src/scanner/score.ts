@@ -1,4 +1,6 @@
 import { type MarketMetrics, toPoints } from './metrics.js';
+import type { ReversionRead } from './reversion.js';
+import type { TradeMetrics } from './trades.js';
 
 /**
  * Scores and signals.
@@ -24,6 +26,8 @@ export interface Scores {
   liquidity: number;
   market_quality: number;
   anomaly: number;
+  /** How much of the overreaction shape is present, 0..100. */
+  mean_reversion: number;
   /** Composite research priority, 0..100. Never an expected-value claim. */
   interestingness: number;
 }
@@ -37,7 +41,11 @@ export type SignalKind =
   | 'WIDE_SPREAD'
   | 'BOOK_IMBALANCE'
   | 'RESOLVING_SOON'
-  | 'THIN_HISTORY';
+  | 'THIN_HISTORY'
+  | 'LARGE_TRADE'
+  | 'CONCENTRATED_FLOW'
+  | 'TAKER_PRESSURE'
+  | 'CROSS_MARKET_GAP';
 
 export interface Signal {
   kind: SignalKind;
@@ -53,6 +61,12 @@ export interface ScoredMarket {
   metrics: MarketMetrics;
   scores: Scores;
   signals: Signal[];
+  /** Present when the venue publishes individual fills. */
+  trades: TradeMetrics | null;
+  /** Present when there is enough history for a 30-day average. */
+  reversion: ReversionRead | null;
+  /** Same proposition, priced differently somewhere else. */
+  cross_market: Array<{ venue: string; gap: number; their_price: number }>;
 }
 
 /** 1st, 2nd, 3rd, 83rd — not "83th". */
@@ -82,12 +96,15 @@ const pct = (p: number) => clamp(p * 100);
  * matters far more than between $1M and $1.01M.
  */
 export function liquidityScore(metrics: MarketMetrics): number {
-  const depth = metrics.book.depth;
-  const volume = metrics.volume_24h;
-  const combined = depth + volume;
+  // Money, not contracts. A count treats forty-two million shares of a
+  // half-cent longshot as four hundred times the market that a hundred
+  // thousand fifty-cent contracts is, when in dollars it is four times.
+  const restingDollars = metrics.book.notional / 1000;
+  const tradedDollars = (metrics.volume_24h * (metrics.price ?? 500)) / 1000;
+  const combined = restingDollars + tradedDollars;
   if (combined <= 0) return 0;
-  // 0 at ~10 contracts, 100 at ~100,000.
-  const scaled = (Math.log10(combined) - 1) / 4;
+  // 0 at about $100 of interest, 100 at about $1,000,000.
+  const scaled = (Math.log10(combined) - 2) / 4;
   return clamp(scaled * 100);
 }
 
@@ -111,7 +128,10 @@ export function marketQualityScore(metrics: MarketMetrics): number {
  * Scores
  * ------------------------------------------------------------------ */
 
-export function scoreMarket(metrics: MarketMetrics): Scores {
+export function scoreMarket(
+  metrics: MarketMetrics,
+  extras: { reversion?: ReversionRead | null; trades?: TradeMetrics | null } = {},
+): Scores {
   // With no volume feed there is no activity claim to make. Fifty is the
   // honest placeholder: it neither promotes nor buries the market, and the
   // card says the data is missing rather than implying a quiet day.
@@ -166,6 +186,7 @@ export function scoreMarket(metrics: MarketMetrics): Scores {
     liquidity,
     market_quality: quality,
     anomaly,
+    mean_reversion: extras.reversion?.score ?? 0,
     interestingness: clamp(raw * gate * thinHistory),
   };
 }
@@ -176,9 +197,18 @@ export function scoreMarket(metrics: MarketMetrics): Scores {
 
 const fmtPoints = (dc: number) => `${dc > 0 ? '+' : ''}${toPoints(dc).toFixed(1)} pts`;
 
-export function deriveSignals(metrics: MarketMetrics, scores: Scores): Signal[] {
+export function deriveSignals(
+  metrics: MarketMetrics,
+  scores: Scores,
+  extras: {
+    trades?: TradeMetrics | null;
+    reversion?: ReversionRead | null;
+    cross_market?: Array<{ venue: string; gap: number; their_price: number }>;
+  } = {},
+): Signal[] {
   const out: Signal[] = [];
   const move24 = metrics.move_24h?.change ?? 0;
+  const imbalance = metrics.book.imbalance;
 
   if (
     (metrics.volume_acceleration ?? 0) >= 3 &&
@@ -215,23 +245,16 @@ export function deriveSignals(metrics: MarketMetrics, scores: Scores): Signal[] 
     });
   }
 
-  // A violent move whose volume has since dried up, with the book now leaning
-  // back the other way. Stated as a possibility, never as a call.
-  const imbalance = metrics.book.imbalance;
-  if (
-    metrics.has_volume_data &&
-    Math.abs(move24) > 0 &&
-    metrics.percentiles.move_24h >= 0.8 &&
-    (metrics.volume_acceleration ?? 0) < 1.2 &&
-    imbalance !== null &&
-    Math.sign(imbalance) !== Math.sign(move24)
-  ) {
+  // The scored version of the overreaction shape, which needs most of its
+  // components present rather than a coincidence of two.
+  const reversion = extras.reversion;
+  if (reversion && reversion.score >= 75) {
     out.push({
       kind: 'MEAN_REVERSION',
       label: 'Possible reversion',
       detail:
-        `Moved ${fmtPoints(move24)}, the volume spike has subsided, and resting size now ` +
-        `leans ${imbalance > 0 ? 'YES' : 'NO'} — against the move.`,
+        reversion.components.filter((c) => c.present).map((c) => c.detail).join(' ') +
+        ' A market can also simply have repriced on news and stayed there.',
       tone: 'INFO',
     });
   }
@@ -241,7 +264,7 @@ export function deriveSignals(metrics: MarketMetrics, scores: Scores): Signal[] 
       kind: 'GOOD_MARKET_QUALITY',
       label: 'Good market quality',
       detail:
-        `${metrics.book.depth.toLocaleString()} contracts resting` +
+        `$${Math.round(metrics.book.notional / 1000).toLocaleString()} resting` +
         (metrics.book.spread !== null
           ? `, ${toPoints(metrics.book.spread).toFixed(1)} pt spread.`
           : '.'),
@@ -298,6 +321,64 @@ export function deriveSignals(metrics: MarketMetrics, scores: Scores): Signal[] 
     });
   }
 
+  const trades = extras.trades;
+  if (trades && trades.large_trades.length > 0) {
+    const biggest = trades.large_trades[0]!;
+    out.push({
+      kind: 'LARGE_TRADE',
+      label: 'Large trade',
+      detail:
+        `${Math.round(biggest.size).toLocaleString()} contracts in one fill — ` +
+        `${biggest.multiple.toFixed(0)}x this market's median of ` +
+        `${Math.round(trades.median_size).toLocaleString()}` +
+        (biggest.block ? ', flagged by the venue as a block trade.' : '.'),
+      tone: 'INFO',
+    });
+  }
+
+  if (trades && trades.concentration >= 0.6 && trades.count >= 20) {
+    out.push({
+      kind: 'CONCENTRATED_FLOW',
+      label: 'Few, large orders',
+      detail:
+        `${Math.round(trades.concentration * 100)}% of volume arrived in the largest tenth of ` +
+        `fills, across ${trades.count} trades — evenly spread flow would be near 10%. A crowd ` +
+        `repricing something and one participant taking a position look identical in a volume ` +
+        `figure.`,
+      tone: 'INFO',
+    });
+  }
+
+  if (trades && trades.taker_pressure !== null && Math.abs(trades.taker_pressure) >= 0.6) {
+    const side = trades.taker_pressure > 0 ? 'YES' : 'NO';
+    const bookSide = metrics.book.imbalance;
+    const disagrees =
+      bookSide !== null && Math.sign(bookSide) !== Math.sign(trades.taker_pressure);
+    out.push({
+      kind: 'TAKER_PRESSURE',
+      label: `Buyers lifting ${side}`,
+      detail:
+        `${Math.round(Math.abs(trades.taker_pressure) * 100)}% of sided volume crossed the ` +
+        `spread to take ${side}` +
+        (disagrees
+          ? ', while the resting size leans the other way — aggression against the queue.'
+          : '.'),
+      tone: 'INFO',
+    });
+  }
+
+  for (const gap of extras.cross_market ?? []) {
+    out.push({
+      kind: 'CROSS_MARKET_GAP',
+      label: 'Cross-market gap',
+      detail:
+        `${(gap.gap / 10).toFixed(1)} points away from ${gap.venue}, which has this at ` +
+        `${(gap.their_price / 10).toFixed(1)}c. Whether that is takeable is the arbitrage ` +
+        `tab's question, not this one's.`,
+      tone: 'INFO',
+    });
+  }
+
   // Said out loud rather than folded silently into the score, because a
   // reader has no other way to know the percentiles are built on sand.
   if (metrics.sample.span_hours < 24 || metrics.sample.distribution_points < 5) {
@@ -315,9 +396,23 @@ export function deriveSignals(metrics: MarketMetrics, scores: Scores): Signal[] 
   return out;
 }
 
-export function analyze(metrics: MarketMetrics): ScoredMarket {
-  const scores = scoreMarket(metrics);
-  return { metrics, scores, signals: deriveSignals(metrics, scores) };
+export function analyze(
+  metrics: MarketMetrics,
+  extras: {
+    trades?: TradeMetrics | null;
+    reversion?: ReversionRead | null;
+    cross_market?: Array<{ venue: string; gap: number; their_price: number }>;
+  } = {},
+): ScoredMarket {
+  const scores = scoreMarket(metrics, extras);
+  return {
+    metrics,
+    scores,
+    signals: deriveSignals(metrics, scores, extras),
+    trades: extras.trades ?? null,
+    reversion: extras.reversion ?? null,
+    cross_market: extras.cross_market ?? [],
+  };
 }
 
 /** Highest research priority first. */

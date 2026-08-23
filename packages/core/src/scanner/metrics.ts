@@ -34,6 +34,15 @@ export interface BookMetrics {
   /** Contracts resting across the visible ladder, both sides. */
   depth: number;
   /**
+   * Capital resting, in deci-cents — depth priced at what it costs.
+   *
+   * Contracts alone are not comparable across price levels. Forty-two
+   * million shares of a half-cent longshot and a hundred thousand of a
+   * fifty-cent contract are two hundred thousand dollars and fifty thousand,
+   * and a count ranks them four hundred to one the wrong way.
+   */
+  notional: number;
+  /**
    * Where the resting size sits, as -1 (all NO) to +1 (all YES).
    *
    * Depth, not trades: this says which side is *waiting*, which is close to
@@ -151,7 +160,7 @@ export interface MarketMetrics {
  */
 export function bookMetrics(book: OrderBook | null, independentSides = true): BookMetrics {
   if (!book) {
-    return { yes_price: null, no_price: null, spread: null, depth: 0, imbalance: null };
+    return { yes_price: null, no_price: null, spread: null, depth: 0, notional: 0, imbalance: null };
   }
   const yesAsk = book.yes_asks[0]?.price ?? null;
   const yesBid = book.yes_bids[0]?.price ?? null;
@@ -159,6 +168,9 @@ export function bookMetrics(book: OrderBook | null, independentSides = true): Bo
 
   const size = (levels: OrderBook['yes_asks']) => levels.reduce((s, l) => s + l.size, 0);
   const spread = yesAsk !== null && yesBid !== null ? yesAsk - yesBid : null;
+
+  const notionalOf = (levels: OrderBook['yes_asks']) =>
+    levels.reduce((s, l) => s + l.size * l.price, 0);
 
   if (!independentSides) {
     const bids = size(book.yes_bids);
@@ -169,6 +181,7 @@ export function bookMetrics(book: OrderBook | null, independentSides = true): Bo
       no_price: noAsk,
       spread,
       depth: total,
+      notional: notionalOf(book.yes_bids) + notionalOf(book.yes_asks),
       imbalance: total > 0 ? (bids - asks) / total : null,
     };
   }
@@ -182,6 +195,11 @@ export function bookMetrics(book: OrderBook | null, independentSides = true): Bo
     no_price: noAsk,
     spread,
     depth: total,
+    notional:
+      notionalOf(book.yes_asks) +
+      notionalOf(book.yes_bids) +
+      notionalOf(book.no_asks) +
+      notionalOf(book.no_bids),
     imbalance: total > 0 ? (yesDepth - noDepth) / total : null,
   };
 }
