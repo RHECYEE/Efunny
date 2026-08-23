@@ -61,6 +61,31 @@ interface Projection {
   not_modelled: string[];
 }
 
+interface TeamContext {
+  team: string;
+  record: { overall: string | null; home: string | null; road: string | null; division: string | null; conference: string | null };
+  recent: number[];
+  season_margin: number | null;
+  news: Array<{ headline: string; description: string; published: string }>;
+  turnovers: { margin_per_game: number | null; fumble_recovery_rate: number | null; luck_note: string };
+}
+
+interface Trench {
+  differential: number | null;
+  severity: 'NONE' | 'NOTABLE' | 'SEVERE';
+  detail: string;
+  line_injuries: string[];
+}
+
+interface MarketRead {
+  venue: string;
+  fair_home_probability: number;
+  overround: number;
+  disagreement_points: number;
+  model_leans: 'HOME' | 'AWAY' | 'ALIGNED';
+  note: string;
+}
+
 interface Matchup {
   game: Game;
   projection: Projection;
@@ -74,6 +99,16 @@ interface Matchup {
     travel_miles: number | null;
   };
   stadium: string;
+  home_context: TeamContext;
+  away_context: TeamContext;
+  common_opponents: {
+    opponents: Array<{ opponent: string; home_margin: number; away_margin: number; difference: number }>;
+    average_difference: number | null;
+    caveat: string;
+  };
+  head_to_head: { meetings: Array<{ date: string; margin: number }>; home_wins: number; away_wins: number; note: string };
+  trenches: { home: Trench; away: Trench };
+  market: MarketRead | null;
   changes: Change[];
   previous_seen_at: string | null;
   stats_season: number;
@@ -288,6 +323,163 @@ function MatchupView({ m }: { m: Matchup }) {
               </div>
             ))}
           </div>
+        </section>
+      )}
+
+      <section>
+        <h4>Records</h4>
+        <table className="splits num">
+          <thead>
+            <tr><th /><th>Overall</th><th>Home</th><th>Road</th><th>Div</th><th>Conf</th></tr>
+          </thead>
+          <tbody>
+            {[m.home_context, m.away_context].map((c) => (
+              <tr key={c.team}>
+                <td className="tm">{c.team}</td>
+                <td>{c.record.overall ?? '—'}</td>
+                <td>{c.record.home ?? '—'}</td>
+                <td>{c.record.road ?? '—'}</td>
+                <td>{c.record.division ?? '—'}</td>
+                <td>{c.record.conference ?? '—'}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </section>
+
+      <section>
+        <h4>Recent form against the season</h4>
+        {[m.home_context, m.away_context].map((c) => {
+          const last3 = c.recent.slice(0, 3);
+          const avg3 = last3.length > 0 ? last3.reduce((s, x) => s + x, 0) / last3.length : null;
+          const drift = avg3 !== null && c.season_margin !== null ? avg3 - c.season_margin : null;
+          return (
+            <div className="form" key={c.team}>
+              <span className="tm">{c.team}</span>
+              <span className="marg">
+                {c.recent.map((x, i) => (
+                  <span key={i} className={x >= 0 ? 'pos' : 'neg'}>
+                    {x >= 0 ? '+' : ''}
+                    {x}
+                  </span>
+                ))}
+              </span>
+              <span className="fd">
+                last 3 average {avg3?.toFixed(1) ?? '—'} against a season {c.season_margin ?? '—'}
+                {drift !== null && Math.abs(drift) >= 4
+                  ? ` — ${drift > 0 ? 'improving' : 'sliding'} relative to the full year`
+                  : ''}
+              </span>
+            </div>
+          );
+        })}
+      </section>
+
+      <section>
+        <h4>Trenches</h4>
+        {(['home', 'away'] as const).map((side) => {
+          const t = m.trenches[side];
+          const team = side === 'home' ? p.home : p.away;
+          return (
+            <div className={`trench ${t.severity.toLowerCase()}`} key={side}>
+              <span className="tm">{team} protection</span>
+              <span className={`sev ${t.severity.toLowerCase()}`}>{t.severity}</span>
+              <span className="fd">{t.detail}</span>
+              {t.line_injuries.length > 0 && (
+                <span className="fd warn">Line: {t.line_injuries.join(', ')}</span>
+              )}
+            </div>
+          );
+        })}
+      </section>
+
+      <section>
+        <h4>Turnovers</h4>
+        {[m.home_context, m.away_context].map((c) => (
+          <div className="turnover" key={c.team}>
+            <span className="tm">{c.team}</span>
+            <span className="fd">
+              {c.turnovers.margin_per_game !== null
+                ? `${c.turnovers.margin_per_game > 0 ? '+' : ''}${c.turnovers.margin_per_game.toFixed(2)} per game. `
+                : ''}
+              {c.turnovers.luck_note}
+            </span>
+          </div>
+        ))}
+      </section>
+
+      {m.common_opponents.opponents.length > 0 && (
+        <section>
+          <h4>Common opponents</h4>
+          <div className="commons">
+            {m.common_opponents.opponents.slice(0, 6).map((o) => (
+              <div className="cmn" key={o.opponent}>
+                <span className="tm">{o.opponent}</span>
+                <span className="num">{o.home_margin >= 0 ? '+' : ''}{o.home_margin}</span>
+                <span className="vs">vs</span>
+                <span className="num">{o.away_margin >= 0 ? '+' : ''}{o.away_margin}</span>
+                <span className={o.difference >= 0 ? 'pos' : 'neg'}>
+                  {o.difference >= 0 ? '+' : ''}
+                  {o.difference}
+                </span>
+              </div>
+            ))}
+          </div>
+          <p className="src">{m.common_opponents.caveat}</p>
+        </section>
+      )}
+
+      <section>
+        <h4>Head to head</h4>
+        <p className="src">
+          {m.head_to_head.meetings.length > 0
+            ? `${m.head_to_head.home_wins}-${m.head_to_head.away_wins} in this sample. `
+            : ''}
+          {m.head_to_head.note}
+        </p>
+      </section>
+
+      <section>
+        <h4>Market</h4>
+        {m.market ? (
+          <>
+            <div className="mkt num">
+              <span>{m.market.venue}</span>
+              <span>
+                fair {Math.round(m.market.fair_home_probability * 100)}% {p.home}
+              </span>
+              <span>overround {((m.market.overround - 1) * 100).toFixed(1)}%</span>
+              <span className={m.market.model_leans === 'ALIGNED' ? '' : 'warn'}>
+                model {m.market.disagreement_points >= 0 ? '+' : ''}
+                {m.market.disagreement_points.toFixed(1)} pts
+              </span>
+            </div>
+            <p className="src">{m.market.note}</p>
+          </>
+        ) : (
+          <p className="src">No venue prices this game.</p>
+        )}
+      </section>
+
+      {(m.home_context.news.length > 0 || m.away_context.news.length > 0) && (
+        <section>
+          <h4>Recent news</h4>
+          <div className="newsgrid">
+            {[m.home_context, m.away_context].map((c) => (
+              <div key={c.team}>
+                <b className="tm">{c.team}</b>
+                <ul>
+                  {c.news.slice(0, 5).map((n) => (
+                    <li key={n.headline}>{n.headline}</li>
+                  ))}
+                </ul>
+              </div>
+            ))}
+          </div>
+          <p className="src">
+            Headlines as published, unfiltered. Deciding which of these matters for this game is
+            an editorial call, and one made automatically would be a guess presented as analysis.
+          </p>
         </section>
       )}
 

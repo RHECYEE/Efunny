@@ -300,3 +300,90 @@ export async function fetchScoreboard(options: EspnOptions = {}): Promise<{
     week: body.week?.number ?? null,
   };
 }
+
+/* ------------------------------------------------------------------ *
+ * Record splits
+ * ------------------------------------------------------------------ */
+
+export interface RecordSplits {
+  overall: string | null;
+  home: string | null;
+  road: string | null;
+  division: string | null;
+  conference: string | null;
+}
+
+/**
+ * Win-loss records by split.
+ *
+ * A single overall record hides the thing people actually want from it — a
+ * team that is 6-2 at home and 1-7 away is not a 7-9 team in any useful
+ * sense, and neither number describes the game being looked at on its own.
+ */
+export async function fetchRecordSplits(
+  teamId: string,
+  season: number,
+  options: EspnOptions = {},
+): Promise<RecordSplits> {
+  const body = await getJson<{
+    items?: Array<{ name?: string; displayValue?: string; summary?: string }>;
+  }>(`${CORE}/seasons/${season}/types/2/teams/${teamId}/record`, options);
+
+  const pick = (name: string): string | null => {
+    const item = (body.items ?? []).find(
+      (i) => (i.name ?? '').toLowerCase() === name.toLowerCase(),
+    );
+    return item?.displayValue ?? item?.summary ?? null;
+  };
+
+  return {
+    overall: pick('overall'),
+    home: pick('Home'),
+    road: pick('Road'),
+    division: pick('vs. Div.'),
+    conference: pick('vs. Conf.'),
+  };
+}
+
+/* ------------------------------------------------------------------ *
+ * News
+ * ------------------------------------------------------------------ */
+
+export interface NewsItem {
+  headline: string;
+  description: string;
+  published: string;
+  type: string;
+}
+
+/**
+ * Recent team news.
+ *
+ * Returned as-is, with no summarising and no judgement about which items
+ * matter. Deciding that a coaching quote is "likely to affect this game" is
+ * an editorial call, and one made by a language model would be exactly the
+ * kind of confident invention this codebase keeps refusing elsewhere. The
+ * headlines are shown; the reader draws the line.
+ */
+export async function fetchNews(
+  teamId: string,
+  options: EspnOptions & { limit?: number } = {},
+): Promise<NewsItem[]> {
+  const body = await getJson<{
+    articles?: Array<{
+      headline?: string;
+      description?: string;
+      published?: string;
+      type?: string;
+    }>;
+  }>(`${SITE}/news?limit=${options.limit ?? 12}&team=${teamId}`, options);
+
+  return (body.articles ?? [])
+    .filter((a) => a.headline)
+    .map((a) => ({
+      headline: a.headline!,
+      description: a.description ?? '',
+      published: a.published ?? '',
+      type: a.type ?? '',
+    }));
+}

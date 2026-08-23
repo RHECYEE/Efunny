@@ -3,20 +3,35 @@ import {
   distanceMiles,
   fetchForecast,
   fetchInjuries,
+  fetchNews,
+  fetchRecordSplits,
   fetchResults,
   fetchScoreboard,
   fetchTeamStats,
   stat,
+  type NewsItem,
+  type RecordSplits,
   type GameResult,
   type NflInjury,
   type UpcomingGame,
 } from '@arbterminal/adapters';
+import { KalshiAdapter } from '@arbterminal/adapters';
 import {
+  compareToMarket,
   diffSnapshots,
   injuryPoints,
   project,
   snapshotOf,
+  commonOpponents,
+  headToHead,
+  trenchRead,
+  turnoverRead,
   type Change,
+  type CommonOpponentRead,
+  type HeadToHead,
+  type MarketComparison,
+  type TrenchRead,
+  type TurnoverRead,
   type Conditions,
   type InjuryImpact,
   type MatchupSnapshot,
@@ -48,12 +63,36 @@ const TEAM_ID: Record<string, string> = {
 const STATS_TTL_MS = 12 * 60 * 60 * 1000;
 const LIVE_TTL_MS = 10 * 60 * 1000;
 
+export interface TeamContext {
+  team: string;
+  record: RecordSplits;
+  /** Last five margins, newest first. */
+  recent: number[];
+  /** Season-long average margin, for comparison against the recent run. */
+  season_margin: number | null;
+  news: NewsItem[];
+  turnovers: TurnoverRead;
+}
+
 export interface MatchupView {
   game: UpcomingGame;
   projection: Projection;
   injuries: InjuryImpact[];
   conditions: Conditions;
   stadium: string;
+  home_context: TeamContext;
+  away_context: TeamContext;
+  common_opponents: CommonOpponentRead;
+  head_to_head: HeadToHead;
+  /** Trench read for each side's protection against the other's rush. */
+  trenches: { home: TrenchRead; away: TrenchRead };
+  /**
+   * The market, read only after the projection was computed.
+   *
+   * Null when no venue prices this game, which is the honest state rather
+   * than a reason to leave the row out.
+   */
+  market: MarketComparison | null;
   /** Populated once the matchup has been looked at before. */
   changes: Change[];
   previous_seen_at: string | null;
@@ -72,6 +111,10 @@ export interface NflBoard {
 interface TeamBundle {
   stats: TeamSeasonStats;
   results: GameResult[];
+  record: RecordSplits;
+  news: NewsItem[];
+  fumbles_forced: number | null;
+  fumbles_recovered: number | null;
 }
 
 export class NflService {
@@ -80,6 +123,8 @@ export class NflService {
   private injuries: NflInjury[] = [];
   private injuriesAt = 0;
   private snapshots = new Map<string, MatchupSnapshot>();
+  private gameMarkets: Array<{ ticker: string; team: string; ask: number }> = [];
+  private gameMarketsAt = 0;
   private statsSeason = 0;
   private priorSeason = false;
 
@@ -127,9 +172,13 @@ export class NflService {
     const id = TEAM_ID[abbr];
     if (!id) return null;
     try {
-      const [raw, results] = await Promise.all([
+      const [raw, results, record, news] = await Promise.all([
         fetchTeamStats(id, season),
         fetchResults(abbr, season),
+        fetchRecordSplits(id, season).catch(() => ({
+          overall: null, home: null, road: null, division: null, conference: null,
+        })),
+        fetchNews(id, { limit: 8 }).catch(() => []),
       ]);
 
       const games = results.length;
@@ -142,6 +191,11 @@ export class NflService {
       const yardsPerGame = stat(raw, 'yardsPerGame');
       const bundle: TeamBundle = {
         results,
+        record,
+        news,
+        // Own fumbles and own fumbles lost — the pair that forms a real rate.
+        fumbles_forced: stat(raw, 'fumbles'),
+        fumbles_recovered: stat(raw, 'fumblesLost'),
         stats: {
           team: abbr,
           games,
@@ -189,6 +243,56 @@ export class NflService {
       // reports as unknown rather than as a clean bill of health.
     }
     return this.injuries;
+  }
+
+  /**
+   * Kalshi's per-game winner markets.
+   *
+   * Fetched as one series sweep and cached, because the alternative is a
+   * lookup per matchup for a list that is the same list every time.
+   */
+  private async ensureGameMarkets(): Promise<typeof this.gameMarkets> {
+    if (Date.now() - this.gameMarketsAt < LIVE_TTL_MS && this.gameMarkets.length > 0) {
+      return this.gameMarkets;
+    }
+    try {
+      const adapter = new KalshiAdapter({ series_tickers: ['KXNFLGAME'], market_limit: 200 });
+      const snaps = await adapter.fetchSnapshots();
+      this.gameMarkets = snaps
+        .flatMap((s) => s.markets)
+        .map((m) => ({
+          ticker: m.market.venue_market_id,
+          // The ticker ends in the team the contract pays on.
+          team: (m.market.venue_market_id.split('-').pop() ?? '').toUpperCase(),
+          ask: m.quote.book.yes_asks[0]?.price ?? 0,
+        }))
+        .filter((m) => m.ask > 0);
+      this.gameMarketsAt = Date.now();
+    } catch {
+      // No market is a missing comparison, not a failed matchup.
+    }
+    return this.gameMarkets;
+  }
+
+  /**
+   * Both sides of one game, if a venue prices it.
+   *
+   * Matched on the ticker carrying both team codes, so a market for a
+   * different week between one of the same teams and somebody else cannot be
+   * picked up by accident.
+   */
+  private async marketFor(homeAbbr: string, awayAbbr: string) {
+    const markets = await this.ensureGameMarkets();
+    const codes = (t: string) => t.toUpperCase();
+    const pair = markets.filter(
+      (m) =>
+        m.ticker.toUpperCase().includes(codes(homeAbbr)) &&
+        m.ticker.toUpperCase().includes(codes(awayAbbr)),
+    );
+    const home = pair.find((m) => m.team === codes(homeAbbr));
+    const away = pair.find((m) => m.team === codes(awayAbbr));
+    if (!home || !away) return null;
+    return { venue: 'kalshi', home_price: home.ask, away_price: away.ask };
   }
 
   async matchup(homeAbbr: string, awayAbbr: string): Promise<MatchupView | null> {
@@ -260,12 +364,50 @@ export class NflService {
       injuries,
       conditions,
       stats_are_prior_season: prior,
+      is_exhibition: game.season_type === 1,
     });
 
+    // Only now — after the projection exists — is a price consulted.
+    const quote = await this.marketFor(homeAbbr, awayAbbr);
+    const market = quote ? compareToMarket(projection.home_win_probability, quote) : null;
+
     const previous = this.snapshots.get(game.id) ?? null;
-    const current = snapshotOf(projection, injuries, conditions.wind_mph, null);
+    const current = snapshotOf(
+      projection,
+      injuries,
+      conditions.wind_mph,
+      market?.fair_home_probability ?? null,
+    );
     const changes = previous ? diffSnapshots(previous, current) : [];
     this.snapshots.set(game.id, current);
+
+    const contextFor = (bundle: TeamBundle): TeamContext => ({
+      team: bundle.stats.team,
+      record: bundle.record,
+      recent: bundle.stats.recent_margins,
+      season_margin:
+        bundle.results.length > 0
+          ? Math.round(
+              (bundle.results.reduce((s, g) => s + (g.points_for - g.points_against), 0) /
+                bundle.results.length) *
+                10,
+            ) / 10
+          : null,
+      news: bundle.news,
+      turnovers: turnoverRead(
+        bundle.stats.turnover_margin_per_game,
+        bundle.fumbles_forced,
+        bundle.fumbles_recovered,
+      ),
+    });
+
+    // Offensive-line injuries drive the trench read, so they are picked out
+    // by position rather than counted with everyone else.
+    const linePositions = /^(LT|RT|OT|T|C|OG|G|OL)$/i;
+    const lineInjuries = (team: string) =>
+      injuries
+        .filter((i) => i.team === team && linePositions.test(i.position))
+        .map((i) => `${i.position} ${i.player} (${i.status})`);
 
     return {
       game,
@@ -273,6 +415,23 @@ export class NflService {
       injuries,
       conditions,
       stadium: stadium?.name ?? 'Unknown venue',
+      home_context: contextFor(home),
+      away_context: contextFor(away),
+      common_opponents: commonOpponents(home.results, away.results),
+      head_to_head: headToHead(home.results, awayAbbr),
+      market,
+      trenches: {
+        home: trenchRead(
+          home.stats.sacks_allowed_per_game,
+          away.stats.sacks_per_game,
+          lineInjuries(homeAbbr),
+        ),
+        away: trenchRead(
+          away.stats.sacks_allowed_per_game,
+          home.stats.sacks_per_game,
+          lineInjuries(awayAbbr),
+        ),
+      },
       changes,
       previous_seen_at: previous?.taken_at ?? null,
       stats_season: this.statsSeason,

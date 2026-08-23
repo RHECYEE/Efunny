@@ -1046,3 +1046,38 @@ td + td {
 .chg.home::before { content: '▲ '; color: var(--pos); }
 .chg.away::before { content: '▼ '; color: var(--neg); }
 .chg.neutral::before { content: '● '; color: var(--dim); }
+
+/* NFL context sections. */
+.splits { width: 100%; font-size: 12px; border-collapse: collapse; }
+.splits th { color: var(--dim); font-weight: 400; text-align: right; padding: 3px 8px; font-size: 11px; }
+.splits th:first-child { text-align: left; }
+.splits td { color: var(--text); text-align: right; padding: 3px 8px; border-top: 1px solid var(--line); }
+.splits td.tm { text-align: left; color: var(--muted); }
+.tm { color: var(--muted); }
+
+.form { display: grid; grid-template-columns: 44px 150px 1fr; gap: 10px; font-size: 12px; padding: 4px 0; align-items: baseline; }
+.form .marg { display: flex; gap: 6px; font-variant-numeric: tabular-nums; }
+.form .fd { color: var(--dim); }
+
+.trench { display: grid; grid-template-columns: 150px 74px 1fr; gap: 10px; font-size: 12px; padding: 5px 0; align-items: baseline; }
+.trench .sev { font-size: 10px; letter-spacing: 0.05em; }
+.trench .sev.severe { color: var(--neg); }
+.trench .sev.notable { color: var(--warn); }
+.trench .sev.none { color: var(--dim); }
+.trench .fd { color: var(--dim); }
+.trench .fd.warn { color: var(--warn); }
+
+.commons { display: flex; flex-direction: column; gap: 2px; }
+.cmn { display: grid; grid-template-columns: 50px 52px 24px 52px 52px; gap: 6px; font-size: 12px; font-variant-numeric: tabular-nums; }
+.cmn .vs { color: var(--dim); text-align: center; }
+
+.mkt { display: flex; gap: 16px; font-size: 12px; color: var(--muted); flex-wrap: wrap; }
+.mkt .warn { color: var(--warn); }
+
+.newsgrid { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 16px; }
+.newsgrid ul { margin: 6px 0 0; font-size: 12px; line-height: 1.6; }
+
+/* Turnovers carry a sentence rather than a row of numbers, so they get
+   their own two-column grid instead of the form layout's narrow middle. */
+.turnover { display: grid; grid-template-columns: 44px 1fr; gap: 10px; font-size: 12px; padding: 4px 0; align-items: baseline; }
+.turnover .fd { color: var(--dim); line-height: 1.6; }

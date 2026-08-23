@@ -239,6 +239,15 @@ export interface ProjectionInput {
   conditions: Conditions;
   /** True when the statistics come from a completed prior season. */
   stats_are_prior_season: boolean;
+  /**
+   * True when the game itself is an exhibition.
+   *
+   * Different from the statistics being stale, and more damaging. Starters
+   * play a series or two, the result turns on fourth-string quarterbacks, and
+   * regular-season team quality barely transfers. A projection here is not
+   * merely uncertain — it is measuring something the game is not about.
+   */
+  is_exhibition?: boolean;
 }
 
 export function project(input: ProjectionInput): Projection {
@@ -360,6 +369,14 @@ export function project(input: ProjectionInput): Projection {
     reasons.push(
       'Statistics are from the last completed season — the current one has not produced ' +
         'meaningful data yet, and rosters have changed since.',
+    );
+  }
+  if (input.is_exhibition) {
+    penalty += 3;
+    reasons.push(
+      'This is a preseason game. Starters play a series or two and the outcome turns on ' +
+        'players who will not be on the roster — regular-season quality, which is what this ' +
+        'projection measures, barely transfers. Treat the number as close to meaningless.',
     );
   }
   const games = Math.min(home.games, away.games);

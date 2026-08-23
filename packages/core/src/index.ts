@@ -30,6 +30,8 @@ export * from './portfolio/allocation.js';
 export * from './ufc/mismatch.js';
 export * from './nfl/projection.js';
 export * from './nfl/diff.js';
+export * from './nfl/context.js';
+export * from './nfl/market.js';
 export * from './scanner/series.js';
 export * from './scanner/metrics.js';
 export * from './scanner/trades.js';
