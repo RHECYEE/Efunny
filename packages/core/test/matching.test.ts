@@ -5,7 +5,9 @@ import {
   matchMarkets,
   tierFor,
   validateProposals,
+  venueApiProvenance,
   verifyMatch,
+  type Market,
 } from '@arbterminal/core';
 import { market, settlement } from './helpers.js';
 
@@ -281,5 +283,53 @@ describe('bulk matching', () => {
     for (const match of matches) {
       expect(match.left_market_id.startsWith('venue_a')).toBe(true);
     }
+  });
+});
+
+describe('outcome identity where there is no threshold', () => {
+  const fighter = (venue: string, name: string): Market => ({
+    market_id: `${venue}:${name.replace(/\s+/g, '_')}`,
+    event_id: `UFC_${venue}`,
+    venue,
+    venue_market_id: name,
+    outcome: `${name.toUpperCase().replace(/\s+/g, '_')}_WINS`,
+    outcome_label: name,
+    market_type: 'MONEYLINE',
+    tier: 'GAME',
+    line: null,
+    comparison_operator: 'NONE',
+    threshold: null,
+    settlement: {
+      settlement_source: 'https://www.ufc.com/events',
+      settlement_rules_text: 'Official UFC result.',
+      void_rules: '',
+      overtime_rules: '',
+    },
+    jurisdiction: 'US-CFTC',
+    currency: 'USD',
+    match_confidence: 0,
+    title: 'UFC Fight Night',
+    status: 'OPEN',
+    close_time: '2026-08-30T00:00:00Z',
+    payout_per_contract: 1000,
+    provenance: venueApiProvenance(venue),
+  });
+
+  it('refuses to pair two different fighters on the same card', () => {
+    // Every structural dimension agrees — same tier, same type, no threshold,
+    // no operator, same deadline. Only the names differ, and with nothing to
+    // corroborate the wording the names are the entire proposition.
+    const match = verifyMatch(fighter('kalshi', 'Sean Woodson'), fighter('polymarket', 'Dan Hooker'));
+    expect(match.contract.state).toBe('MISMATCHED');
+    expect(match.eligible_for_arbitrage).toBe(false);
+  });
+
+  it('still pairs the same fighter across two venues', () => {
+    const match = verifyMatch(
+      fighter('kalshi', 'Umar Nurmagomedov'),
+      fighter('polymarket', 'Umar Nurmagomedov'),
+    );
+    expect(match.contract.state).not.toBe('MISMATCHED');
+    expect(match.eligible_for_arbitrage).toBe(true);
   });
 });

@@ -146,6 +146,7 @@ export function pricePosition(
     const legFee = model.tradingFee(context) + model.settlementFee(context);
     fees += units > 0 ? legFee / units : 0;
 
+    const usesComplement = leg.side === 'BUY_NO' && Boolean(leg.market.complement_label);
     legDetails.push({
       market_id: leg.market.market_id,
       outcome: leg.market.outcome,
@@ -156,7 +157,11 @@ export function pricePosition(
       vwap: effectiveVwap,
       slippage_per_contract: effectiveVwap - (top ?? ONE_DOLLAR),
       depth_available: totalDepth(leg.ladder),
-      outcome_label: leg.market.outcome_label,
+      // A NO leg is described by what it actually pays on. Where the venue
+      // names the other side — the opposing fighter, the other party — that
+      // is the honest label; "NO on Song Yadong" reads like a bet on him.
+      outcome_label: usesComplement ? leg.market.complement_label! : leg.market.outcome_label,
+      label_is_complement: usesComplement,
     });
   }
 

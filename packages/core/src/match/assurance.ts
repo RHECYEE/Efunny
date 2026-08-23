@@ -6,6 +6,7 @@ import type {
   SettlementAssurance,
   SettlementDiff,
 } from '../domain/types.js';
+import { contentTokens, stringSimilarity, tokenSimilarity } from '../normalize/canonical.js';
 import { diffSettlement } from './settlementDiff.js';
 
 /**
@@ -31,6 +32,29 @@ import { diffSettlement } from './settlementDiff.js';
 
 /** Deadlines within this window are the same settlement moment. */
 const DEADLINE_TOLERANCE_MS = 7 * 24 * 60 * 60 * 1000;
+
+/**
+ * Contests get a wider window, because the deadline is not what identifies
+ * them.
+ *
+ * For a threshold market the deadline is load-bearing — "above $100k by
+ * December" and "by January" are different contracts, and a tolerance wide
+ * enough to merge them would be a serious error. For a named contest it is
+ * not: what identifies a bout is who is in it, and that is now checked
+ * absolutely. Venues buffer the administrative expiry differently and always
+ * will — Kalshi expires a 29 August fight on 12 September, while Polymarket
+ * dates it to the event — so a tight comparison here rejects genuine pairs
+ * over a difference in bookkeeping rather than in the contract.
+ */
+const CONTEST_DEADLINE_TOLERANCE_MS = 30 * 24 * 60 * 60 * 1000;
+
+const CONTEST_TIERS = new Set(['GAME', 'TEAM_PROP', 'PLAYER_PROP']);
+
+function deadlineToleranceFor(left: Market, right: Market): number {
+  return CONTEST_TIERS.has(left.tier) && CONTEST_TIERS.has(right.tier)
+    ? CONTEST_DEADLINE_TOLERANCE_MS
+    : DEADLINE_TOLERANCE_MS;
+}
 
 /**
  * Thresholds compare within a *relative* epsilon: "$99,999.99" and "$100,000"
@@ -141,12 +165,57 @@ export function compareContracts(left: Market, right: Market): ContractCompariso
     ),
   );
 
+  /**
+   * When nothing else identifies the proposition, the name is the
+   * proposition.
+   *
+   * A threshold market can be worded two entirely different ways and still be
+   * checkable — "above $100,000" and "reaches 100k" agree on the number, and
+   * the number is the contract. A named two-way contest has no such anchor.
+   * Strip the names from "Sean Woodson wins" and "Dan Hooker wins" and what
+   * remains is identical: same tier, same type, no threshold, no operator,
+   * a deadline the same week. Structure cannot tell those apart, so with no
+   * threshold present a name that does not correspond is not weak evidence
+   * of a mismatch — it is the mismatch.
+   */
+  const anyThreshold =
+    left.threshold !== null ||
+    left.line !== null ||
+    right.threshold !== null ||
+    right.line !== null;
+  const outcomeSimilarity = Math.max(
+    stringSimilarity(left.outcome_label, right.outcome_label),
+    tokenSimilarity(contentTokens(left.outcome_label), contentTokens(right.outcome_label)),
+  );
+  const outcomeAgrees = left.outcome === right.outcome || outcomeSimilarity >= 0.75;
+  dimensions.push(
+    dimension(
+      'outcome',
+      'Outcome',
+      outcomeAgrees,
+      // Disqualifying only where there is no threshold to corroborate the
+      // wording. Where there is one, differing wording is handled by
+      // confidence, as before.
+      !anyThreshold,
+      left.outcome_label,
+      right.outcome_label,
+      outcomeAgrees
+        ? 'Both pay on the same outcome.'
+        : anyThreshold
+          ? 'Outcome wording differs; the shared threshold is what corroborates the match.'
+          : 'Different outcomes, and no threshold to corroborate them. These are ' +
+            'different propositions at any price.',
+    ),
+  );
+
   const deadlineGap =
     left.close_time && right.close_time
       ? Math.abs(Date.parse(left.close_time) - Date.parse(right.close_time))
       : null;
   const deadlineAgrees =
-    deadlineGap !== null && Number.isFinite(deadlineGap) && deadlineGap <= DEADLINE_TOLERANCE_MS;
+    deadlineGap !== null &&
+    Number.isFinite(deadlineGap) &&
+    deadlineGap <= deadlineToleranceFor(left, right);
   dimensions.push(
     dimension(
       'deadline',
@@ -180,7 +249,14 @@ export function compareContracts(left: Market, right: Market): ContractCompariso
   // shared vocabulary. It is capped below certainty because agreeing on the
   // trigger is not the same as agreeing on how the trigger is measured, which
   // is the settlement question and is assessed separately.
-  const structural = dimensions.every((d) => d.agreed);
+  // The outcome name is an identity check, not a structural one, and it is
+  // deliberately left out of this score. Where a threshold exists the two
+  // venues are *expected* to word the same contract differently — "Above
+  // $99,999.99" against "crosses $100k" — and counting that disagreement as
+  // structural disagreement would penalise the very case the threshold is
+  // there to corroborate. Where no threshold exists it has already blocked
+  // above, so it never needs to be scored at all.
+  const structural = dimensions.every((d) => d.name === 'outcome' || d.agreed);
   const hasThreshold = left.threshold !== null || left.line !== null;
   const confidence = structural && hasThreshold ? 0.95 : structural ? 0.85 : 0.7;
 

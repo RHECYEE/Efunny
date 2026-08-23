@@ -157,6 +157,17 @@ export interface Market {
   outcome: string;
   /** Human label for the outcome, as the venue words it. */
   outcome_label: string;
+  /**
+   * What the NO side of this market is called, when it has a name of its own.
+   *
+   * Usually there isn't one — the complement of "Bitcoin above $100k" is just
+   * "not above $100k", and saying so adds nothing. But a two-way contest
+   * names both sides, and there the complement is a different person: NO on
+   * "Song Yadong" is a bet on Umar Nurmagomedov. Rendering that as "Bet NO ·
+   * Song Yadong" reads like a bet on the man whose name is on it, which is
+   * the opposite of the position being described.
+   */
+  complement_label?: string | null;
   market_type: MarketType;
   tier: MarketTier;
   line: number | null;
@@ -257,7 +268,15 @@ export interface Leg {
   slippage_per_contract: DeciCents;
   /** Contracts available across the whole visible ladder. */
   depth_available: number;
+  /** What this leg pays on, in the venue's own words. */
   outcome_label: string;
+  /**
+   * True when `outcome_label` is the *other* side's name rather than the
+   * market's own. A NO leg on a named two-way contest pays on the opponent,
+   * so the instruction has to read "back this person", never "bet NO on"
+   * them — the second says the opposite of what the position does.
+   */
+  label_is_complement?: boolean;
 }
 
 /** One line of the cost-adjustment stack, in display order. */

@@ -11,6 +11,25 @@ export * from './kalshi/client.js';
 export * from './kalshi/fees.js';
 export * from './kalshi/normalize.js';
 export * from './kalshi/adapter.js';
+export * from './polymarket/client.js';
+export * from './polymarket/fees.js';
+export * from './polymarket/adapter.js';
+// Same collision as the manual normalizer below: every adapter owns a
+// `toMarket`/`toQuote` of its own, so they are named rather than splatted.
+export {
+  POLYMARKET_VENUE,
+  categoryOf as polymarketCategoryOf,
+  detectExhaustive as polymarketDetectExhaustive,
+  isTradeable as polymarketIsTradeable,
+  parseJsonArray as polymarketParseJsonArray,
+  tokenIdsOf as polymarketTokenIds,
+  toLadder as polymarketToLadder,
+  toOrderBook as polymarketToOrderBook,
+  toSettlement as polymarketToSettlement,
+  toMarket as polymarketToMarket,
+  toQuote as polymarketToQuote,
+  toEvent as polymarketToEvent,
+} from './polymarket/normalize.js';
 export * from './manual/csv.js';
 export * from './manual/repair.js';
 export * from './manual/rules.js';

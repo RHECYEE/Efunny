@@ -45,8 +45,17 @@ export function arbStatus(opportunity: Opportunity): ArbStatus {
 
 export interface AllocationLeg {
   venue: string;
-  /** "Buy YES" / "Bet NO" — what to actually do at this venue. */
+  /** "Buy YES" / "Bet NO" / "Back" — what to actually do at this venue. */
   action: string;
+  /**
+   * Whether this leg pays when its outcome happens.
+   *
+   * Carried explicitly rather than read back out of `action`: the verb is
+   * display text and has already grown a third spelling, and a payout
+   * calculation that depends on how a button is worded is one rename away
+   * from silently inverting.
+   */
+  pays_on_outcome: boolean;
   outcome_label: string;
   /** Money on this side, in deci-cents, rounded to whole dollars. */
   stake: Money;
@@ -102,7 +111,7 @@ const EMPTY: Allocation = {
  */
 function worstCaseReturn(legs: AllocationLeg[], outcomes: string[]): Money {
   const distinct = [...new Set(outcomes)];
-  const anyNoLeg = legs.some((leg) => !leg.action.includes('YES'));
+  const anyNoLeg = legs.some((leg) => !leg.pays_on_outcome);
   const cases: Array<string | null> = anyNoLeg ? [...distinct, null] : distinct;
 
   let worst: number | null = null;
@@ -111,7 +120,7 @@ function worstCaseReturn(legs: AllocationLeg[], outcomes: string[]): Money {
     for (let i = 0; i < legs.length; i += 1) {
       const leg = legs[i]!;
       const outcome = outcomes[i]!;
-      const wins = leg.action.includes('YES') ? outcome === winner : outcome !== winner;
+      const wins = leg.pays_on_outcome ? outcome === winner : outcome !== winner;
       if (wins) payout += leg.contracts * ONE_DOLLAR;
     }
     if (worst === null || payout < worst) worst = payout;
@@ -158,7 +167,11 @@ export function allocate(opportunity: Opportunity, bankroll: Money): Allocation 
     const stake = Math.floor((contracts * leg.price) / 1000) * 1000;
     return {
       venue: leg.venue,
-      action: leg.side === 'BUY_YES' ? 'Buy YES' : 'Bet NO',
+      // "Back X" where the NO side is a named opponent, because that is the
+      // button the venue actually shows. "Bet NO · Umar Nurmagomedov" would
+      // describe the opposite position from the one being taken.
+      action: leg.side === 'BUY_YES' ? 'Buy YES' : leg.label_is_complement ? 'Back' : 'Bet NO',
+      pays_on_outcome: leg.side === 'BUY_YES',
       outcome_label: leg.outcome_label,
       stake,
       contracts,

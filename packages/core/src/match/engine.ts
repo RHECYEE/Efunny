@@ -148,6 +148,14 @@ export function verifyMatch(
     ),
   );
 
+  // With no threshold on either side, the outcome name is the whole
+  // proposition and a mismatch is disqualifying rather than merely costly.
+  // Two fighters on the same card share every structural attribute there is.
+  const anyThreshold =
+    left.threshold !== null ||
+    left.line !== null ||
+    right.threshold !== null ||
+    right.line !== null;
   checks.push(
     check(
       'same_outcome_condition',
@@ -155,8 +163,9 @@ export function verifyMatch(
       outcomeIdsEqual
         ? `Both pay on ${left.outcome}.`
         : `Outcomes "${left.outcome_label}" vs "${right.outcome_label}" ` +
-            `(${Math.round(outcomeSim * 100)}% similar).`,
-      false,
+            `(${Math.round(outcomeSim * 100)}% similar)` +
+            (anyThreshold ? '.' : ', and no threshold corroborates them.'),
+      !anyThreshold,
     ),
   );
 
