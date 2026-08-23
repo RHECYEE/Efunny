@@ -8,9 +8,10 @@ import { ResultCard } from './components/ResultCard.js';
 import { Cart, type CartEntry } from './components/Cart.js';
 import { Filters } from './components/Filters.js';
 import { PaperTradeDialog } from './components/PaperTradeDialog.js';
+import { UfcBoard } from './components/UfcBoard.js';
 import { Portfolio } from './components/Portfolio.js';
 
-type Tab = 'PREDICTION' | 'SPORTS' | 'CART' | 'PORTFOLIO';
+type Tab = 'PREDICTION' | 'SPORTS' | 'UFC' | 'CART' | 'PORTFOLIO';
 
 const POLL_MS = 10_000;
 
@@ -95,6 +96,7 @@ export function App() {
             [
               ['PREDICTION', 'Predictions'],
               ['SPORTS', 'Sports'],
+              ['UFC', 'UFC'],
               ['CART', 'Cart'],
               ['PORTFOLIO', 'Paper portfolio'],
             ] as Array<[Tab, string]>
@@ -137,8 +139,8 @@ export function App() {
           executable edge, match confidence, units of a position. Neither
           answers "is there an arbitrage", so neither sits in front of the
           results any more. */}
-      <div className={`body single${showFilters && tab !== 'PORTFOLIO' && tab !== 'CART' ? ' with-rail' : ''}`}>
-        {showFilters && tab !== 'PORTFOLIO' && tab !== 'CART' && (
+      <div className={`body single${showFilters && tab !== 'PORTFOLIO' && tab !== 'CART' && tab !== 'UFC' ? ' with-rail' : ''}`}>
+        {showFilters && tab !== 'PORTFOLIO' && tab !== 'CART' && tab !== 'UFC' && (
           <Filters
             filter={filter}
             onChange={setFilter}
@@ -165,6 +167,8 @@ export function App() {
               }
               onClear={() => setCart([])}
             />
+          ) : tab === 'UFC' ? (
+            <UfcBoard />
           ) : tab === 'PORTFOLIO' ? (
             <Portfolio refreshKey={portfolioKey} />
           ) : (
