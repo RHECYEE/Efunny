@@ -1,6 +1,11 @@
 import { describe, expect, it } from 'vitest';
 import {
+  commonOpponents,
+  compareToMarket,
   diffSnapshots,
+  headToHead,
+  trenchRead,
+  turnoverRead,
   injuryPoints,
   marginToWinProbability,
   project,
@@ -164,5 +169,69 @@ describe('snapshots', () => {
     expect(snap.home).toBe('KC');
     expect(snap.wind_mph).toBe(12);
     expect(snap.market_home_probability).toBe(0.55);
+  });
+});
+
+describe('context', () => {
+  const r = (opponent: string, pf: number, pa: number, date = '2025-10-01') => ({
+    date, opponent, home: true, points_for: pf, points_against: pa,
+  });
+
+  it('compares two teams against shared opponents and states the sample', () => {
+    const read = commonOpponents(
+      [r('NO', 10, 30), r('JAX', 14, 20), r('XX', 30, 0)],
+      [r('NO', 31, 10), r('JAX', 20, 14)],
+    );
+    expect(read.opponents).toHaveLength(2);
+    expect(read.caveat).toContain('2 shared opponents');
+    expect(read.caveat).toContain('no weight');
+  });
+
+  it('shows head-to-head and says it carries no weight', () => {
+    const h = headToHead([r('BUF', 30, 20), r('MIA', 10, 20)], 'BUF');
+    expect(h.home_wins).toBe(1);
+    expect(h.note).toContain('no weight');
+  });
+
+  it('does not produce a fumble rate above one', () => {
+    // Total recoveries over forced fumbles gave "114%": recoveries include a
+    // team's own fumbles, the denominator counted only forced ones.
+    const t = turnoverRead(0.2, 20, 7);
+    expect(t.fumble_recovery_rate).toBeCloseTo(0.65, 2);
+    expect(t.luck_note).toContain('luck rather than skill');
+  });
+
+  it('calls a near-even recovery rate earned rather than lucky', () => {
+    expect(turnoverRead(0.1, 20, 10).luck_note).toContain('earned');
+  });
+
+  it('escalates a trench read on line injuries', () => {
+    const clean = trenchRead(2.0, 2.7, []);
+    const hurt = trenchRead(2.0, 2.7, ['LT A Smith (Out)', 'C B Jones (Out)']);
+    expect(clean.severity).toBe('NOTABLE');
+    expect(hurt.severity).toBe('SEVERE');
+    expect(hurt.detail).toContain('crude stand-in for pressure rate');
+  });
+});
+
+describe('market comparison', () => {
+  it('removes the margin before comparing', () => {
+    // Comparing against an un-devigged price manufactures a disagreement the
+    // width of the overround on every single game.
+    const c = compareToMarket(0.55, { venue: 'v', home_price: 550, away_price: 500 });
+    expect(c.overround).toBeCloseTo(1.05, 3);
+    expect(c.fair_home_probability).toBeCloseTo(0.5238, 3);
+    expect(Math.abs(c.disagreement_points)).toBeLessThan(3.5);
+  });
+
+  it('refuses to call a disagreement an edge', () => {
+    const c = compareToMarket(0.75, { venue: 'v', home_price: 400, away_price: 620 });
+    expect(c.model_leans).toBe('HOME');
+    expect(c.note).toContain('not an edge');
+  });
+
+  it('says so plainly when model and market agree', () => {
+    const c = compareToMarket(0.5, { venue: 'v', home_price: 500, away_price: 500 });
+    expect(c.model_leans).toBe('ALIGNED');
   });
 });

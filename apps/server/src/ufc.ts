@@ -2,6 +2,7 @@ import {
   KalshiAdapter,
   PolymarketAdapter,
   buildDossier,
+  attachMarketTension,
   buildFightCards,
   type FightCard,
   type Fighter,
@@ -17,6 +18,32 @@ import { fetchProfiles } from './ufcstatsBrowser.js';
  * because the career box has no denominators: it will say a fighter stops 85%
  * of takedowns without saying whether that is off six attempts or sixty.
  */
+/** Years from a published date of birth. */
+function ageFrom(dob: string | null): number | null {
+  if (!dob) return null;
+  const born = Date.parse(dob);
+  if (!Number.isFinite(born)) return null;
+  return Math.floor((Date.now() - born) / (365.25 * 86_400_000));
+}
+
+/**
+ * Days since the last bout.
+ *
+ * Read from the event text in the fight table, which carries a date. Returns
+ * null rather than zero when no date parses — a fighter with an unreadable
+ * record has not just fought.
+ */
+function layoffFrom(fights: FighterProfile['fights']): number | null {
+  for (const fight of fights) {
+    const match = fight.event.match(/([A-Z][a-z]{2})\.?\s+(\d{1,2}),\s+(\d{4})/);
+    if (!match) continue;
+    const parsed = Date.parse(`${match[1]} ${match[2]}, ${match[3]}`);
+    if (!Number.isFinite(parsed)) continue;
+    return Math.floor((Date.now() - parsed) / 86_400_000);
+  }
+  return null;
+}
+
 function toStats(name: string, profile: FighterProfile): FighterStats {
   const fights = profile.fights;
   const isKo = (m: string) => /^(KO|TKO)/i.test(m);
@@ -32,6 +59,9 @@ function toStats(name: string, profile: FighterProfile): FighterStats {
     strike_defence: profile.stats.strike_defence,
     reach_inches: profile.stats.reach_inches,
     height_inches: profile.stats.height_inches,
+    stance: profile.stats.stance,
+    age: ageFrom(profile.stats.dob),
+    layoff_days: layoffFrom(fights),
     fights_counted: fights.length,
     takedowns_conceded: fights.reduce((s, f) => s + f.takedowns[1], 0),
     knockdowns_landed: fights.reduce((s, f) => s + f.knockdowns[0], 0),
@@ -132,6 +162,7 @@ export class UfcBoardService {
         const pb = profiles.get(b.name);
         if (!pa || !pb) continue;
         card.mismatch = computeMismatch(toStats(a.name, pa), toStats(b.name, pb));
+        attachMarketTension(card);
       }
 
       const board: UfcBoard = {

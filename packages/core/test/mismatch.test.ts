@@ -11,7 +11,7 @@ import {
 const base: FighterStats = {
   name: 'x', td_per15: 0, td_accuracy: 0.3, td_defence: 0.6, sub_per15: 0,
   slpm: 3, sapm: 3, strike_accuracy: 0.5, strike_defence: 0.5,
-  reach_inches: 72, height_inches: 70,
+  reach_inches: 72, height_inches: 70, stance: 'Orthodox', age: 30, layoff_days: 120,
   fights_counted: 20, takedowns_conceded: 10, knockdowns_landed: 5,
   knockdowns_absorbed: 5, ko_wins: 5, submission_wins: 2, wins: 12,
 };
@@ -91,5 +91,47 @@ describe('scoring', () => {
     const m = computeMismatch(f({ name: 'w', td_per15: 4.5 }), f({ name: 's', td_per15: 0.2 }));
     expect(mismatchLabel(m.score)).toBeTruthy();
     expect(JSON.stringify(m).toLowerCase()).not.toContain('win_probability');
+  });
+});
+
+describe('physical and situational read', () => {
+  const p = (over: Partial<FighterStats>) => f(over);
+
+  it('is reported beside the grappling score, never inside it', () => {
+    // Folding reach into a "grappling mismatch" would make one number mean
+    // two things, which is the mistake the confidence score made elsewhere.
+    const long = p({ name: 'w', td_per15: 4, reach_inches: 78, age: 26 });
+    const short = p({ name: 's', td_per15: 0.2, reach_inches: 70, age: 36 });
+    const a = computeMismatch(long, short);
+    const b = computeMismatch(p({ name: 'w', td_per15: 4, reach_inches: 70, age: 36 }), p({ name: 's', td_per15: 0.2, reach_inches: 70, age: 36 }));
+    // Same grappling inputs, wildly different physicals: the score must not move.
+    expect(a.score).toBe(b.score);
+    expect(a.physical!.reach_advantage_inches).toBe(8);
+    expect(a.physical!.age_gap_years).toBe(-10);
+  });
+
+  it('names an open-stance matchup and ignores a switch fighter', () => {
+    const ortho = p({ name: 'w', td_per15: 4, stance: 'Orthodox' });
+    const south = p({ name: 's', td_per15: 0.2, stance: 'Southpaw' });
+    expect(computeMismatch(ortho, south).physical!.open_stance).toBe(true);
+
+    const sw = p({ name: 's', td_per15: 0.2, stance: 'Switch' });
+    expect(computeMismatch(ortho, sw).physical!.open_stance).toBe(false);
+  });
+
+  it('flags a long layoff without pretending to price it', () => {
+    const rusty = p({ name: 's', td_per15: 0.2, layoff_days: 700 });
+    const m = computeMismatch(p({ name: 'w', td_per15: 4 }), rusty);
+    expect(m.physical!.layoffs).toHaveLength(1);
+    expect(m.physical!.notes.join(' ')).toContain('not modelled');
+  });
+
+  it('still reports physicals when there is no grappler', () => {
+    const m = computeMismatch(
+      p({ name: 'a', td_per15: 0.1, reach_inches: 76 }),
+      p({ name: 'b', td_per15: 0.1, reach_inches: 70 }),
+    );
+    expect(m.no_grappler).toBe(true);
+    expect(m.physical!.reach_advantage_inches).toBe(6);
   });
 });

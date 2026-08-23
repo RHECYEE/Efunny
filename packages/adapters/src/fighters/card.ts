@@ -1,5 +1,5 @@
 import type { Market, Quote } from '@arbterminal/core';
-import { type GrapplingMismatch } from '@arbterminal/core';
+import { ONE_DOLLAR, devig, overround, type GrapplingMismatch } from '@arbterminal/core';
 import { type Fighter, isBrazilian, lookup, nameKey } from './dossier.js';
 
 /**
@@ -56,6 +56,26 @@ export interface FightCard {
    */
   brazilian: boolean;
   venues: string[];
+  /**
+   * What the market thinks, de-vigged, per side.
+   *
+   * Kept beside the grappling read rather than combined with it. A fighter
+   * being likely to win does not make his price a good one, and a screen that
+   * multiplied a style score by a probability would be asserting an edge that
+   * nothing here has established. The two numbers are shown; the reader
+   * decides whether they disagree in an interesting way.
+   */
+  market: FightMarketRead | null;
+}
+
+export interface FightMarketRead {
+  /** Implied probability for each side after the margin is removed. */
+  fair: [number, number];
+  /** Total implied probability before de-vigging. Above 1 is the margin. */
+  overround: number;
+  venue: string;
+  /** Present when the grappling read and the market point different ways. */
+  tension: string | null;
 }
 
 interface Priced {
@@ -162,6 +182,7 @@ export function buildFightCards(
       sides,
       divergence: divergenceOf(sides),
       mismatch: null,
+      market: marketRead(sides),
       brazilian: (fighterA ? isBrazilian(fighterA) : false) || (fighterB ? isBrazilian(fighterB) : false),
       venues,
     });
@@ -206,4 +227,57 @@ export function isStyleClash(a: Fighter | null, b: Fighter | null): boolean {
   if (!a || !b) return false;
   if (a.style_class === 'UNKNOWN' || b.style_class === 'UNKNOWN') return false;
   return a.style_class !== b.style_class;
+}
+
+/**
+ * De-vig both sides of a fight, using the best price available for each.
+ *
+ * Uses the same de-vigging as the rest of the package. Returns null unless
+ * both sides are priced, because half a book is not a probability.
+ */
+function marketRead(sides: [FightSide, FightSide]): FightMarketRead | null {
+  const a = sides[0].best;
+  const b = sides[1].best;
+  if (!a || !b) return null;
+
+  const implied = [a.price / ONE_DOLLAR, b.price / ONE_DOLLAR];
+  const total = overround(implied);
+  if (!(total > 0)) return null;
+  const fair = devig(implied);
+
+  return {
+    fair: [fair[0]!, fair[1]!],
+    overround: total,
+    venue: a.venue === b.venue ? a.venue : `${a.venue} / ${b.venue}`,
+    tension: null,
+  };
+}
+
+/**
+ * Note when the grappling read and the price point in different directions.
+ *
+ * Attached after the mismatch is computed, since the card is built before the
+ * career statistics arrive. Says only that the two disagree — whether that is
+ * an opportunity or a sign the model is missing something the market can see
+ * is exactly the question this app does not answer for anybody.
+ */
+export function attachMarketTension(card: FightCard): void {
+  const m = card.mismatch;
+  const market = card.market;
+  if (!m || !market || m.no_grappler || !m.grappler) return;
+
+  const grapplerIndex = card.sides[0].name === m.grappler ? 0 : 1;
+  const grapplerProbability = market.fair[grapplerIndex]!;
+
+  if (m.score >= 60 && grapplerProbability < 0.45) {
+    market.tension =
+      `The grappling read is lopsided toward ${m.grappler} at ${m.score}/100, and the market ` +
+      `has him at ${Math.round(grapplerProbability * 100)}%. Worth understanding why before ` +
+      `assuming either is wrong.`;
+  } else if (m.score <= 30 && grapplerProbability > 0.7) {
+    market.tension =
+      `The market strongly favours ${m.grappler} at ${Math.round(grapplerProbability * 100)}% ` +
+      `while the grappling read finds little asymmetry — the case for him is likely something ` +
+      `this model does not measure.`;
+  }
 }

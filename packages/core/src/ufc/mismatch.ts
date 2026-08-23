@@ -36,6 +36,12 @@ export interface FighterStats {
   strike_defence: number | null;
   reach_inches: number | null;
   height_inches: number | null;
+  /** Orthodox, Southpaw or Switch, as the promotion lists it. */
+  stance: string | null;
+  /** Years, from the published date of birth. */
+  age: number | null;
+  /** Days since the last recorded bout. */
+  layoff_days: number | null;
   /** Derived from the fight history, not the career box. */
   fights_counted: number;
   takedowns_conceded: number;
@@ -58,6 +64,27 @@ export interface MismatchComponent {
   detail: string;
 }
 
+/**
+ * The physical and situational read, kept separate from the grappling score.
+ *
+ * These matter and they are not grappling. Folding reach and age into a
+ * "grappling mismatch" would make the number mean two things at once, which
+ * is what the single confidence score elsewhere in this codebase did before
+ * it was split apart. They are reported alongside instead.
+ */
+export interface PhysicalRead {
+  reach_advantage_inches: number | null;
+  height_advantage_inches: number | null;
+  /** Positive means the grappler is older. */
+  age_gap_years: number | null;
+  /** True when the two fighters stand in opposite stances. */
+  open_stance: boolean;
+  stances: [string | null, string | null];
+  /** Long absences, which are worth naming even though the effect is unclear. */
+  layoffs: Array<{ name: string; days: number }>;
+  notes: string[];
+}
+
 export interface GrapplingMismatch {
   /** 0..100. Higher means a more lopsided grappling matchup. */
   score: number;
@@ -70,6 +97,8 @@ export interface GrapplingMismatch {
   not_modelled: string[];
   /** True when neither fighter meaningfully forces the fight to the floor. */
   no_grappler: boolean;
+  /** Reach, age, stance and layoff — reported, never folded into the score. */
+  physical: PhysicalRead | null;
 }
 
 /**
@@ -159,12 +188,81 @@ export function assignRoles(
   };
 }
 
+
+/**
+ * Reach, age, stance and time off.
+ *
+ * Reported for both fighters rather than scored, because the effects are
+ * real but small and poorly separated from everything else — a three-inch
+ * reach edge matters differently for a wrestler closing distance than for a
+ * counter-striker, and folding it into one number would assert a precision
+ * nobody has. An open-stance matchup is named because it changes which
+ * strikes are available, not because a weight has been fitted to it.
+ */
+export function physicalRead(grappler: FighterStats, striker: FighterStats): PhysicalRead {
+  const gap = (a: number | null, b: number | null) => (a !== null && b !== null ? a - b : null);
+  const reach = gap(grappler.reach_inches, striker.reach_inches);
+  const height = gap(grappler.height_inches, striker.height_inches);
+  const age = gap(grappler.age, striker.age);
+
+  const norm = (s: string | null) => (s ?? '').trim().toLowerCase();
+  const openStance =
+    norm(grappler.stance) !== '' &&
+    norm(striker.stance) !== '' &&
+    norm(grappler.stance) !== norm(striker.stance) &&
+    !norm(grappler.stance).includes('switch') &&
+    !norm(striker.stance).includes('switch');
+
+  const layoffs: Array<{ name: string; days: number }> = [];
+  for (const f of [grappler, striker]) {
+    if (f.layoff_days !== null && f.layoff_days >= 365) {
+      layoffs.push({ name: f.name, days: f.layoff_days });
+    }
+  }
+
+  const notes: string[] = [];
+  if (reach !== null && Math.abs(reach) >= 3) {
+    notes.push(
+      `${reach > 0 ? grappler.name : striker.name} has ${Math.abs(reach)}" of reach. For a ` +
+        `wrestler that is distance to cover; for a striker it is distance to keep.`,
+    );
+  }
+  if (age !== null && Math.abs(age) >= 5) {
+    notes.push(
+      `${age > 0 ? grappler.name : striker.name} is ${Math.abs(age)} years older.`,
+    );
+  }
+  if (openStance) {
+    notes.push(
+      `Open stance (${grappler.stance} against ${striker.stance}), which changes which strikes ` +
+        `are available to both.`,
+    );
+  }
+  for (const l of layoffs) {
+    notes.push(
+      `${l.name} has been out ${Math.round(l.days / 30)} months. Long layoffs are worth ` +
+        `knowing about; their effect is not modelled here.`,
+    );
+  }
+
+  return {
+    reach_advantage_inches: reach,
+    height_advantage_inches: height,
+    age_gap_years: age,
+    open_stance: openStance,
+    stances: [grappler.stance, striker.stance],
+    layoffs,
+    notes,
+  };
+}
+
 export function computeMismatch(a: FighterStats, b: FighterStats): GrapplingMismatch {
   const notModelled = [
     'Get-up ability and time spent controlled on the floor — UFCStats publishes control time per bout but not as a career figure, and it is not summarised here.',
     'Whether the grappler re-shoots after a stuffed attempt, which is the difference between pressure and a single look.',
     'Entry vulnerability: whether the grappler gets hit or rocked while closing distance.',
-    'Cardio, short-notice replacement, weight-cut trouble, camp changes and layoffs.',
+    'Cardio across later rounds, which needs round-by-round output the career page does not summarise.',
+    'Short-notice replacement, weight-cut trouble and camp or coaching changes, none of which are published anywhere machine-readable.',
   ];
 
   // No record, no read. Scoring a blank profile produces sentences like
@@ -181,6 +279,7 @@ export function computeMismatch(a: FighterStats, b: FighterStats): GrapplingMism
       components: [],
       not_modelled: notModelled,
       no_grappler: true,
+      physical: null,
     };
   }
 
@@ -193,6 +292,8 @@ export function computeMismatch(a: FighterStats, b: FighterStats): GrapplingMism
       striker: null,
       role_basis: basis,
       components: [],
+      // Still worth showing even with no grappling story to tell.
+      physical: physicalRead(a, b),
       not_modelled: notModelled,
       no_grappler: true,
     };
@@ -303,6 +404,7 @@ export function computeMismatch(a: FighterStats, b: FighterStats): GrapplingMism
     components,
     not_modelled: notModelled,
     no_grappler: false,
+    physical: physicalRead(grappler, striker),
   };
 }
 

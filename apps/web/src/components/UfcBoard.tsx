@@ -45,6 +45,7 @@ interface FightCard {
   sides: [FightSide, FightSide];
   divergence: number | null;
   mismatch: Mismatch | null;
+  market: FightMarket | null;
   brazilian: boolean;
   venues: string[];
 }
@@ -57,6 +58,16 @@ interface MismatchComponent {
   detail: string;
 }
 
+interface Physical {
+  reach_advantage_inches: number | null;
+  height_advantage_inches: number | null;
+  age_gap_years: number | null;
+  open_stance: boolean;
+  stances: [string | null, string | null];
+  layoffs: Array<{ name: string; days: number }>;
+  notes: string[];
+}
+
 interface Mismatch {
   score: number;
   grappler: string | null;
@@ -65,6 +76,14 @@ interface Mismatch {
   components: MismatchComponent[];
   not_modelled: string[];
   no_grappler: boolean;
+  physical: Physical | null;
+}
+
+interface FightMarket {
+  fair: [number, number];
+  overround: number;
+  venue: string;
+  tension: string | null;
 }
 
 interface Board {
@@ -255,6 +274,34 @@ export function UfcBoard() {
                           ))}
                         </>
                       )}
+                      {card.mismatch.physical && card.mismatch.physical.notes.length > 0 && (
+                        <div className="phys">
+                          <b>Physical and situational</b>
+                          <ul>
+                            {card.mismatch.physical.notes.map((n) => (
+                              <li key={n}>{n}</li>
+                            ))}
+                          </ul>
+                        </div>
+                      )}
+
+                      {card.market && (
+                        <div className="mktread">
+                          <b>Market</b>
+                          <p className="src">
+                            {card.sides[0].name} {Math.round(card.market.fair[0] * 100)}% ·{' '}
+                            {card.sides[1].name} {Math.round(card.market.fair[1] * 100)}%
+                            {' '}de-vigged from {card.market.venue}, margin{' '}
+                            {((card.market.overround - 1) * 100).toFixed(1)}%.
+                          </p>
+                          {card.market.tension && <p className="caution">{card.market.tension}</p>}
+                          <p className="src">
+                            Shown beside the grappling read, never combined with it. A fighter
+                            being likely to win does not make his price a good one.
+                          </p>
+                        </div>
+                      )}
+
                       <details className="mm-gaps">
                         <summary>What this does not measure</summary>
                         <ul>
