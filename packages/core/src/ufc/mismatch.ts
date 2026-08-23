@@ -383,17 +383,25 @@ export function computeMismatch(a: FighterStats, b: FighterStats): GrapplingMism
     koRate === null && knockdownRate === null
       ? null
       : unit(((koRate ?? 0) * 0.6 + unit((knockdownRate ?? 0) / 0.8) * 0.4));
+  /**
+   * Named for what the number means, not for what it measures.
+   *
+   * Every bar here points the same way — higher is a wider mismatch — so this
+   * one carries the inverted value, and calling it "standing danger" put 86
+   * next to a fighter who can barely punch. A reader sees a long bar labelled
+   * danger and concludes the opposite of the truth.
+   */
   components.push({
     name: 'standing_danger',
-    label: 'Standing danger to the grappler',
+    label: 'Low standing danger',
     value: danger === null ? null : 1 - danger,
     weight: 0.12,
     detail:
       danger === null
         ? 'Not enough history to judge.'
-        : `${striker.ko_wins} of ${striker.wins} wins by knockout, ` +
-          `${(knockdownRate ?? 0).toFixed(2)} knockdowns per fight. He has to be got through ` +
-          `first, and that narrows the mismatch.`,
+        : `${striker.name} has ${striker.ko_wins} of ${striker.wins} wins by knockout and ` +
+          `${(knockdownRate ?? 0).toFixed(2)} knockdowns per fight. A high bar here means ` +
+          `comparatively little to survive on the way in; a puncher narrows the mismatch.`,
   });
 
   return {
