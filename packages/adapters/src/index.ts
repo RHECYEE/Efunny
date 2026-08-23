@@ -30,6 +30,7 @@ export {
   toQuote as polymarketToQuote,
   toEvent as polymarketToEvent,
 } from './polymarket/normalize.js';
+export * from './history/index.js';
 export * from './fighters/dossier.js';
 export * from './fighters/card.js';
 export * from './manual/csv.js';

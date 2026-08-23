@@ -1,5 +1,6 @@
 import Fastify, { type FastifyInstance } from 'fastify';
 import { UfcBoardService } from './ufc.js';
+import { ScannerService } from './scanner.js';
 import {
   consensusFor,
   countOpportunities,
@@ -67,12 +68,14 @@ export interface ApiDeps {
   store: Store;
   adapters: VenueAdapter[];
   ufc?: UfcBoardService;
+  scanner?: ScannerService;
 }
 
 export function buildApi(deps: ApiDeps): FastifyInstance {
   const app = Fastify({ logger: false });
   const { pipeline, store, adapters } = deps;
   const ufc = deps.ufc ?? new UfcBoardService();
+  const scanner = deps.scanner ?? new ScannerService();
 
   app.get('/api/health', async () => ({ ok: true, time: new Date().toISOString() }));
 
@@ -81,6 +84,8 @@ export function buildApi(deps: ApiDeps): FastifyInstance {
   // The UFC board is its own scan against its own venues, so it does not ride
   // the main pipeline's cycle.
   app.get('/api/ufc', async () => ufc.board());
+
+  app.get('/api/scanner', async () => scanner.feed());
 
   app.get('/api/opportunities', async (request) => {
     const filter = parseFilter(request.query as Record<string, unknown>);

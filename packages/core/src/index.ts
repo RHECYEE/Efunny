@@ -27,5 +27,8 @@ export * from './arb/engine.js';
 
 export * from './paper/simulator.js';
 export * from './portfolio/allocation.js';
+export * from './scanner/series.js';
+export * from './scanner/metrics.js';
+export * from './scanner/score.js';
 export * from './portfolio/cart.js';
 export * from './portfolio/filters.js';

@@ -920,3 +920,49 @@ td + td {
 .fight-detail ul { margin: 6px 0 0; padding-left: 16px; font-size: 12px; color: var(--muted); }
 .fight-detail li { padding: 2px 0; }
 .fight-detail .src { color: var(--dim); font-size: 11px; }
+
+/* ---------- Scanner ---------------------------------------------------
+   Ranked by research priority. Not styled like the arbitrage tabs on
+   purpose — a green number here would imply a verdict this screen is
+   explicitly not making. */
+
+.scan-note { color: var(--muted); font-size: 12px; margin-bottom: 14px; line-height: 1.6; }
+.scan-feed { display: flex; flex-direction: column; gap: 6px; }
+
+.scan-row {
+  display: flex; gap: 14px; align-items: flex-start; cursor: pointer;
+  background: var(--panel); border: 1px solid var(--line);
+  border-radius: 8px; padding: 12px 14px;
+}
+.scan-row .score {
+  font-size: 22px; font-variant-numeric: tabular-nums; color: var(--accent);
+  min-width: 44px; text-align: right;
+}
+.scan-row .main { min-width: 0; flex: 1; }
+.scan-row .line1 { display: flex; gap: 8px; align-items: baseline; }
+.scan-row .ttl { color: #fff; font-size: 14px; }
+.scan-row .venue { color: var(--dim); font-size: 11px; text-transform: uppercase; }
+.scan-row .line2 { display: flex; gap: 14px; font-size: 12px; color: var(--muted); margin-top: 3px; }
+.scan-row .badges { display: flex; gap: 5px; margin-top: 6px; flex-wrap: wrap; }
+.badge { font-size: 10px; letter-spacing: 0.05em; text-transform: uppercase; padding: 2px 6px; border-radius: 3px; }
+.badge.info { background: #14243a; color: #7ab6f5; }
+.badge.good { background: #10331f; color: #6ee7a8; }
+.badge.warn { background: #33240f; color: #ffc46b; }
+
+.scan-detail {
+  margin-top: 14px; background: var(--panel); border: 1px solid var(--line);
+  border-radius: 10px; padding: 16px;
+}
+.scan-detail h3 { margin: 0 0 12px; font-size: 15px; color: #fff; font-weight: 500; }
+.scores { display: grid; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); gap: 6px 20px; margin-bottom: 14px; }
+.sbar { display: flex; align-items: center; gap: 8px; font-size: 12px; }
+.sbar .sl { color: var(--muted); min-width: 104px; }
+.sbar .st { flex: 1; height: 5px; background: #0c1119; border-radius: 3px; overflow: hidden; }
+.sbar .st span { display: block; height: 100%; background: var(--accent); }
+.sbar .sv { color: var(--text); font-variant-numeric: tabular-nums; min-width: 24px; text-align: right; }
+.sig { font-size: 12px; margin: 6px 0; color: var(--muted); line-height: 1.55; }
+.sig.warn { color: #e6d5b0; }
+.sig.good { color: #a9e7c4; }
+.scan-detail table { width: 100%; font-size: 12px; margin-top: 12px; border-collapse: collapse; }
+.scan-detail td { padding: 4px 0; color: var(--muted); border-top: 1px solid var(--line); }
+.scan-detail td:last-child { text-align: right; color: var(--text); }

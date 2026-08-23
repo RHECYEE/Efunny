@@ -141,6 +141,18 @@ export class PolymarketAdapter implements VenueAdapter {
     return snapshots;
   }
 
+  /**
+   * CLOB token ids for a market this adapter has already seen.
+   *
+   * Price history is per *token*, not per market, and the mapping only exists
+   * inside this adapter — deriving it anywhere else would mean re-deriving
+   * Polymarket's two-token structure outside the one file that is allowed to
+   * know about it.
+   */
+  tokensFor(marketId: string): { yes: string | null; no: string | null } | null {
+    return this.tokenIndex.get(marketId) ?? null;
+  }
+
   async fetchQuotes(marketIds: string[], options: FetchOptions = {}): Promise<Quote[]> {
     const wanted: string[] = [];
     for (const id of marketIds) {
