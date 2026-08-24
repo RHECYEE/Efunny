@@ -149,3 +149,147 @@ button:disabled { opacity: 0.5; }
 
 .pos { color: var(--pos); }
 .neg { color: var(--neg); }
+
+/* ------------------------------------------------------------------ *
+ * The other three modes
+ *
+ * One column throughout. The desktop puts scores beside their reasons;
+ * a phone has to stack them, so the number leads and the reasoning
+ * follows underneath rather than being cut to fit.
+ * ------------------------------------------------------------------ */
+
+nav.modes button { padding: 12px 10px; font-size: 13px; }
+nav.modes .gear { margin-left: auto; flex: 0 0 auto; padding: 12px 14px; }
+nav.sub { border-bottom: 1px solid var(--line); }
+nav.sub button { font-size: 13px; }
+
+.banner.warn { background: #231c0e; border: 1px solid var(--warn); color: #ffe2ad; }
+.showing { color: var(--dim); font-size: 12px; margin: 20px 0 0; text-align: center; }
+.gaps { margin-top: 10px; }
+.gaps summary { color: var(--warn); font-size: 12px; cursor: pointer; }
+.gaps ul { margin: 8px 0 0; padding-left: 18px; color: var(--dim); font-size: 12px; }
+.gaps li { margin-bottom: 4px; }
+
+/* Filter chips — the UFC board's four views. */
+.chips { display: flex; gap: 6px; overflow-x: auto; margin-bottom: 14px; padding-bottom: 2px; }
+.chips button {
+  flex: 0 0 auto; padding: 7px 12px; border-radius: 999px;
+  border: 1px solid var(--line); background: var(--panel);
+  color: var(--muted); font-size: 12px;
+}
+.chips button.on { border-color: var(--accent); color: #fff; }
+
+/* --- Featured ----------------------------------------------------- */
+
+.scan-row {
+  background: var(--panel); border: 1px solid var(--line); border-radius: 8px;
+  padding: 12px; margin-bottom: 10px;
+}
+.scan-row.open { border-color: var(--accent); }
+.scan-head { display: flex; gap: 10px; align-items: baseline; }
+.scan-head .score {
+  font-size: 20px; font-weight: 600; color: var(--accent);
+  font-variant-numeric: tabular-nums; min-width: 34px;
+}
+.scan-head .ttl { font-size: 14px; line-height: 1.35; }
+.line2 { display: flex; gap: 12px; margin-top: 8px; color: var(--muted); font-size: 12px; }
+.line2 .pos { color: var(--pos); }
+.line2 .neg { color: var(--neg); }
+.badges { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+.badge {
+  padding: 3px 8px; border-radius: 4px; font-size: 11px;
+  background: #1a2230; color: var(--muted);
+}
+.badge.good { background: #10251a; color: #8fe0b0; }
+.badge.warn { background: #2a2210; color: #ffd68a; }
+
+.scan-detail { margin-top: 14px; border-top: 1px solid var(--line); padding-top: 12px; }
+.scores { margin-bottom: 12px; }
+.sbar { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; font-size: 12px; }
+.sbar .sl { color: var(--muted); flex: 0 0 92px; }
+.sbar .st { flex: 1; height: 5px; background: #1a2230; border-radius: 3px; overflow: hidden; }
+.sbar .st span { display: block; height: 100%; background: var(--accent); }
+.sbar .sv { color: var(--dim); flex: 0 0 24px; text-align: right; font-variant-numeric: tabular-nums; }
+.sig { font-size: 12px; color: var(--muted); margin: 6px 0; }
+.sig.warn { color: #ffd68a; }
+.sig.good { color: #8fe0b0; }
+table.num { width: 100%; font-size: 12px; border-collapse: collapse; margin-top: 10px; }
+table.num td { padding: 5px 0; border-bottom: 1px solid var(--line); color: var(--muted); }
+table.num td:last-child { text-align: right; color: var(--text); font-variant-numeric: tabular-nums; }
+
+/* --- UFC ---------------------------------------------------------- */
+
+.fight {
+  background: var(--panel); border: 1px solid var(--line); border-radius: 8px;
+  padding: 12px; margin-bottom: 10px;
+}
+.fight.open { border-color: var(--accent); }
+.fight-head { display: flex; justify-content: space-between; gap: 10px; font-size: 14px; }
+.fight-head .mm { color: var(--warn); font-size: 12px; flex: 0 0 auto; }
+.side {
+  display: flex; justify-content: space-between; gap: 10px;
+  margin-top: 8px; font-size: 12px; color: var(--muted);
+}
+.side .vp { margin-left: 8px; font-variant-numeric: tabular-nums; color: var(--text); }
+.fight-body { margin-top: 12px; border-top: 1px solid var(--line); padding-top: 12px; }
+.deep-btn {
+  width: 100%; margin-top: 12px; padding: 10px;
+  background: #16202e; border: 1px solid var(--line); border-radius: 6px;
+  color: var(--muted); font-size: 12px;
+}
+.deep { margin-top: 12px; }
+.deep-row {
+  display: flex; justify-content: space-between; gap: 10px;
+  padding: 5px 0; border-bottom: 1px solid var(--line); font-size: 12px;
+}
+.deep-row > span:first-child { color: var(--muted); }
+.deep-row > span:last-child { font-variant-numeric: tabular-nums; }
+
+/* --- NFL ---------------------------------------------------------- */
+
+.game {
+  background: var(--panel); border: 1px solid var(--line); border-radius: 8px;
+  padding: 12px; margin-bottom: 10px;
+}
+.game.open { border-color: var(--accent); }
+.game-head { display: flex; justify-content: space-between; font-size: 14px; }
+.matchup { margin-top: 12px; border-top: 1px solid var(--line); padding-top: 12px; }
+.changed {
+  background: #16202e; border-left: 3px solid var(--accent);
+  padding: 10px 12px; border-radius: 6px; margin-bottom: 14px;
+}
+.changed h4 { margin: 0 0 8px; font-size: 12px; color: var(--muted); font-weight: 500; }
+.chg { font-size: 12px; margin-bottom: 4px; }
+.chg.up { color: var(--pos); }
+.chg.down { color: var(--neg); }
+
+.headline { text-align: center; margin-bottom: 12px; }
+.headline .score {
+  display: flex; align-items: baseline; justify-content: center; gap: 8px;
+  font-variant-numeric: tabular-nums;
+}
+.headline .score b { font-size: 28px; font-weight: 600; }
+.headline .score span { color: var(--muted); font-size: 13px; }
+.headline .dash { color: var(--dim); }
+.headline .prob { margin-top: 6px; font-size: 13px; color: var(--muted); }
+.headline .conf {
+  display: inline-block; margin-top: 8px; padding: 3px 10px;
+  border-radius: 999px; font-size: 11px; letter-spacing: 0.06em;
+}
+.conf.low { background: #2a1410; color: #ffb3a0; }
+.conf.moderate { background: #2a2210; color: #ffd68a; }
+.conf.good { background: #10251a; color: #8fe0b0; }
+.conf-why { margin: 0 0 14px; padding-left: 18px; color: var(--dim); font-size: 12px; }
+
+.nfl-sec { margin-bottom: 16px; }
+.nfl-sec h4 { margin: 0 0 8px; font-size: 12px; color: var(--muted); font-weight: 500; }
+.nfl-sec ul { margin: 0; padding-left: 18px; font-size: 13px; color: var(--text); }
+.nfl-sec li { margin-bottom: 5px; line-height: 1.4; }
+.factor { display: flex; gap: 8px; align-items: baseline; margin-bottom: 6px; font-size: 12px; }
+.factor .pts { flex: 0 0 42px; text-align: right; font-variant-numeric: tabular-nums; }
+.factor .pts.pos { color: var(--pos); }
+.factor .pts.neg { color: var(--neg); }
+.factor .fl { color: var(--text); }
+.factor .fd { color: var(--dim); flex: 1; }
+.mkt { display: flex; flex-wrap: wrap; gap: 10px; font-size: 12px; color: var(--muted); }
+.mkt .warn { color: var(--warn); }

@@ -333,3 +333,20 @@ describe('outcome identity where there is no threshold', () => {
     expect(match.eligible_for_arbitrage).toBe(true);
   });
 });
+
+describe('option merging', () => {
+  it('keeps the confidence floor when a caller forwards an absent setting', () => {
+    // The same trap as the venue clients, with a worse consequence. An
+    // explicit undefined overwrites the default, and every comparison against
+    // an undefined floor reads false — so instead of throwing, this quietly
+    // reports the low-confidence pairings the floor exists to suppress.
+    const markets = [
+      market({ venue: 'venue_a', venue_market_id: 'A1', title: 'Rain in Lagos on Tuesday' }),
+      market({ venue: 'venue_b', venue_market_id: 'B1', title: 'Fed cuts rates in March' }),
+    ];
+    const withDefault = matchMarkets(markets);
+    const withUndefined = matchMarkets(markets, { min_confidence_to_report: undefined });
+    expect(withUndefined.length).toBe(withDefault.length);
+  });
+});
+

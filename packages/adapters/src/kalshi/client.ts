@@ -95,6 +95,27 @@ const DEFAULTS = {
   user_agent: 'ArbTerminal/0.1 (read-only market analysis)',
 };
 
+/**
+ * Drop keys that are present but undefined, so defaults survive them.
+ *
+ * `{...DEFAULTS, ...options}` treats an explicit `undefined` as a value and
+ * overwrites the default with it. A caller forwarding an optional setting it
+ * does not have — `timeout_ms: config.timeout_ms` where the config is
+ * silent — therefore erases the timeout rather than leaving it alone, and
+ * `AbortSignal.timeout(undefined)` throws on every request thereafter.
+ *
+ * That failed quietly: the calls are wrapped in `.catch(() => [])` so a whole
+ * venue simply stopped appearing, with a shorter list of results and no error
+ * anywhere to say why.
+ */
+function defined<T extends object>(options: T): Partial<T> {
+  const out: Partial<T> = {};
+  for (const [key, value] of Object.entries(options)) {
+    if (value !== undefined) out[key as keyof T] = value as T[keyof T];
+  }
+  return out;
+}
+
 export class KalshiApiError extends Error {
   constructor(
     message: string,
@@ -117,7 +138,7 @@ export class KalshiClient {
   constructor(options: KalshiClientOptions = {}) {
     this.options = {
       ...DEFAULTS,
-      ...options,
+      ...defined(options),
       fetch_impl: options.fetch_impl ?? globalThis.fetch.bind(globalThis),
     };
   }

@@ -7,7 +7,7 @@
     "types": ["vite/client"],
     "paths": {
       "@arbterminal/core": ["../../packages/core/src/index.ts"],
-      "@arbterminal/adapters": ["../../packages/adapters/src/index.ts"]
+      "@arbterminal/adapters/browser": ["../../packages/adapters/src/browser.ts"]
     }
   },
   "include": ["src"]

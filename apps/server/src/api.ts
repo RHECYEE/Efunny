@@ -1,7 +1,11 @@
 import Fastify, { type FastifyInstance } from 'fastify';
-import { UfcBoardService, UfcDeepService } from './ufc.js';
-import { ScannerService } from './scanner.js';
-import { NflService } from './nfl.js';
+import {
+  NflService,
+  ScannerService,
+  UfcBoardService,
+  UfcDeepService,
+} from '@arbterminal/adapters';
+import { browserFighterSource } from './fighterSource.js';
 import {
   consensusFor,
   countOpportunities,
@@ -76,7 +80,9 @@ export interface ApiDeps {
 export function buildApi(deps: ApiDeps): FastifyInstance {
   const app = Fastify({ logger: false });
   const { pipeline, store, adapters } = deps;
-  const ufc = deps.ufc ?? new UfcBoardService();
+  // The desktop has a browser, so it supplies the one part of the UFC screen
+  // that cannot be fetched over plain HTTP.
+  const ufc = deps.ufc ?? new UfcBoardService({ fighters: browserFighterSource });
   const ufcDeep = new UfcDeepService(ufc);
   const scanner = deps.scanner ?? new ScannerService();
   const nfl = deps.nfl ?? new NflService();
@@ -95,6 +101,45 @@ export function buildApi(deps: ApiDeps): FastifyInstance {
     const q = request.query as Record<string, string>;
     if (!q.fight) return reply.code(400).send({ error: 'fight id required' });
     return ufcDeep.read(q.fight);
+  });
+
+  /*
+   * Lending the browser to the phone.
+   *
+   * The mobile build runs every one of these screens on the handset, with one
+   * exception it cannot engineer away: UFCStats only serves pages to
+   * something that will execute their script, and a WebView pointed at a
+   * cross-origin page will not do. These two routes exist so a phone on the
+   * same network can borrow this machine's Chromium for that one read, rather
+   * than the UFC tab losing its grappling model entirely.
+   *
+   * Read-only, like everything else here, and they expose nothing the UFC tab
+   * does not already show.
+   */
+  app.get('/api/ufc/profiles', async (request, reply) => {
+    const q = request.query as Record<string, string>;
+    const names = (q.names ?? '').split('|').map((n) => n.trim()).filter(Boolean);
+    if (names.length === 0) return reply.code(400).send({ error: 'names required' });
+    // Bounded: each uncached name is a page load, and an unbounded list from
+    // the network would hold the browser open for as long as it was long.
+    const wanted = names.slice(0, 60);
+    const profiles = await browserFighterSource.profiles(wanted, { budget: 40 });
+    return {
+      profiles: wanted.map((name) => ({ name, profile: profiles.get(name) ?? null })),
+    };
+  });
+
+  app.get('/api/ufc/fights', async (request, reply) => {
+    const q = request.query as Record<string, string>;
+    if (!q.name || !q.url) return reply.code(400).send({ error: 'name and url required' });
+    // Only UFCStats fighter pages: this route drives a browser, and a URL
+    // from the network must not be able to choose where it goes.
+    if (!/^https?:\/\/(www\.)?ufcstats\.com\/fighter-details\/[a-f0-9]+$/i.test(q.url)) {
+      return reply.code(400).send({ error: 'url must be a ufcstats.com fighter page' });
+    }
+    const limit = Math.min(Math.max(Number(q.limit) || 5, 1), 5);
+    const details = await browserFighterSource.fightDetails!(q.name, q.url, limit);
+    return { details };
   });
 
   app.get('/api/scanner', async () => scanner.feed());

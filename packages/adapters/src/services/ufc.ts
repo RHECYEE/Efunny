@@ -7,7 +7,7 @@ import {
   type FightCard,
   type Fighter,
   type FighterProfile,
-} from '@arbterminal/adapters';
+} from '../browser.js';
 import {
   computeDeepRead,
   computeMismatch,
@@ -16,7 +16,25 @@ import {
   type FighterStats,
   type FightLines,
 } from '@arbterminal/core';
-import { fetchProfiles, fetchRecentFightDetails } from './ufcstatsBrowser.js';
+import type { FightDetail } from '../fighters/ufcstats.js';
+
+/**
+ * Where career statistics come from.
+ *
+ * UFCStats sits behind a check that only clears when a real browser runs the
+ * page's script, so reading it needs a browser — which a server has and a
+ * phone does not. Rather than the service knowing that, it is handed a
+ * provider: a desktop build passes one driving Chromium, a phone passes one
+ * that asks a companion desktop, and a phone with neither passes nothing and
+ * gets a board that says so instead of a board that quietly omits the read.
+ */
+export interface FighterDataSource {
+  profiles(names: string[], options?: { budget?: number }): Promise<Map<string, FighterProfile | null>>;
+  /** Per-round lines from recent bouts. Absent where only careers are reachable. */
+  fightDetails?(name: string, fighterUrl: string, limit: number): Promise<FightDetail[]>;
+  /** Shown on screen when the read is partial, so the gap is never silent. */
+  describe: string;
+}
 
 /**
  * A career profile into the shape the mismatch model wants.
@@ -107,8 +125,23 @@ export interface UfcBoard {
     two_venue: number;
     dossier_size: number;
   };
+  /**
+   * Where the career statistics came from, or null when nothing supplied
+   * them. Named on screen so an absent grappling read is visibly absent.
+   */
+  stats_source: string | null;
   scanned_at: string;
   error: string | null;
+}
+
+/** Construction for the UFC board. */
+export interface UfcOptions {
+  fetch_impl?: typeof fetch;
+  request_timeout_ms?: number;
+  /** Career statistics, where this build can reach them. */
+  fighters?: FighterDataSource;
+  kalshi?: KalshiAdapter;
+  polymarket?: PolymarketAdapter;
 }
 
 export class UfcBoardService {
@@ -118,16 +151,32 @@ export class UfcBoardService {
   private cachedAt = 0;
   private inflight: Promise<UfcBoard> | null = null;
 
-  constructor(
-    private readonly kalshi = new KalshiAdapter({
-      series_tickers: ['KXUFCFIGHT'],
-      market_limit: 200,
-    }),
-    private readonly polymarket = new PolymarketAdapter({
-      tag_slugs: ['ufc'],
-      event_limit: 200,
-    }),
-  ) {}
+  private readonly kalshi: KalshiAdapter;
+  private readonly polymarket: PolymarketAdapter;
+
+  constructor(private readonly options: UfcOptions = {}) {
+    this.kalshi =
+      options.kalshi ??
+      new KalshiAdapter({
+        series_tickers: ['KXUFCFIGHT'],
+        market_limit: 200,
+        fetch_impl: options.fetch_impl,
+        timeout_ms: options.request_timeout_ms,
+      });
+    this.polymarket =
+      options.polymarket ??
+      new PolymarketAdapter({
+        tag_slugs: ['ufc'],
+        event_limit: 200,
+        fetch_impl: options.fetch_impl,
+        request_timeout_ms: options.request_timeout_ms,
+      });
+  }
+
+  /** The career-statistics source, if this build has one. */
+  get fighters(): FighterDataSource | null {
+    return this.options.fighters ?? null;
+  }
 
   async board(): Promise<UfcBoard> {
     if (this.cached && Date.now() - this.cachedAt < CARDS_TTL_MS) return this.cached;
@@ -142,7 +191,10 @@ export class UfcBoardService {
 
   private async ensureDossier(): Promise<Map<string, Fighter>> {
     if (this.dossier && Date.now() - this.dossierAt < DOSSIER_TTL_MS) return this.dossier;
-    this.dossier = await buildDossier();
+    this.dossier = await buildDossier({
+      fetch_impl: this.options.fetch_impl,
+      request_timeout_ms: this.options.request_timeout_ms,
+    });
     this.dossierAt = Date.now();
     return this.dossier;
   }
@@ -161,15 +213,22 @@ export class UfcBoardService {
 
       // Career statistics for everyone on the card, then the grappling read.
       // Cached names cost nothing; the budget bounds a cold first run.
+      //
+      // Without a source for them the board still stands — both venues'
+      // prices, the fighters' identities, where the two disagree — and the
+      // grappling model simply does not run. That is a smaller screen, not a
+      // wrong one, and `stats_source` says which it is.
       const names = [...new Set(cards.flatMap((c) => c.sides.map((s) => s.name)))];
-      const profiles = await fetchProfiles(names, { budget: 40 });
-      for (const card of cards) {
-        const [a, b] = card.sides;
-        const pa = profiles.get(a.name);
-        const pb = profiles.get(b.name);
-        if (!pa || !pb) continue;
-        card.mismatch = computeMismatch(toStats(a.name, pa), toStats(b.name, pb));
-        attachMarketTension(card);
+      if (this.fighters) {
+        const profiles = await this.fighters.profiles(names, { budget: 40 });
+        for (const card of cards) {
+          const [a, b] = card.sides;
+          const pa = profiles.get(a.name);
+          const pb = profiles.get(b.name);
+          if (!pa || !pb) continue;
+          card.mismatch = computeMismatch(toStats(a.name, pa), toStats(b.name, pb));
+          attachMarketTension(card);
+        }
       }
 
       const board: UfcBoard = {
@@ -181,6 +240,7 @@ export class UfcBoardService {
           two_venue: cards.filter((c) => c.venues.length > 1).length,
           dossier_size: dossier.size,
         },
+        stats_source: this.fighters?.describe ?? null,
         scanned_at: scannedAt,
         error: null,
       };
@@ -193,6 +253,7 @@ export class UfcBoardService {
         coverage:
           this.cached?.coverage ??
           { fights: 0, both_known: 0, both_scored: 0, two_venue: 0, dossier_size: 0 },
+        stats_source: this.fighters?.describe ?? null,
         scanned_at: scannedAt,
         error: error instanceof Error ? error.message : String(error),
       };
@@ -235,14 +296,26 @@ export class UfcDeepService {
       const card = board.cards.find((c) => c.fight_id === fightId);
       if (!card) return { fight_id: fightId, fighters: [null, null], error: 'No such fight.' };
 
+      const source = this.board.fighters;
+      if (!source?.fightDetails) {
+        return {
+          fight_id: fightId,
+          fighters: [null, null],
+          error:
+            'The deep read needs per-round lines from individual bouts, and this build has no ' +
+            'way to fetch them. The pages are served behind a check that only a real browser ' +
+            'clears, so the desktop app reads them and hands them over.',
+        };
+      }
+
       const names = card.sides.map((s) => s.name) as [string, string];
-      const profiles = await fetchProfiles(names, { budget: 2 });
+      const profiles = await source.profiles(names, { budget: 2 });
 
       const reads = await Promise.all(
         names.map(async (name): Promise<DeepFighterRead | null> => {
           const profile = profiles.get(name);
           if (!profile) return null;
-          const details = await fetchRecentFightDetails(name, profile.url, 5);
+          const details = await source.fightDetails!(name, profile.url, 5);
 
           // Already oriented on the way in: slot zero is the fighter whose
           // page the bout was reached from, matched by page URL rather than

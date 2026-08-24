@@ -1,4 +1,3 @@
-import { CapacitorHttp } from '@capacitor/core';
 import {
   FeeBook,
   countOpportunities,
@@ -10,52 +9,7 @@ import {
 } from '@arbterminal/core';
 import { KalshiAdapter } from '../../../packages/adapters/src/kalshi/adapter.js';
 import { ManualCsvAdapter, type ImportDiagnostics } from './manualAdapter.js';
-
-/**
- * The whole pipeline, on the phone.
- *
- * There is no server in this build. The same `@arbterminal/core` the desktop
- * app uses runs here unchanged — normalization, matching, the arb engine —
- * because core has no dependencies and touches no I/O. Only the two edges
- * differ: prices come from a file the user picked instead of a directory, and
- * HTTP goes through the native layer.
- */
-
-/**
- * Kalshi rejects any request carrying an `Origin` header — with a 403,
- * whatever the value, and regardless of User-Agent. A WebView `fetch()` always
- * attaches one on a cross-origin call, so the browser networking stack simply
- * cannot reach this API. That is not a CORS misconfiguration to work around
- * with a proxy; it is why this app has to exist as a native shell rather than
- * a web page.
- *
- * `CapacitorHttp` performs the request in Java, which sends no Origin, so the
- * adapter is handed this in place of `fetch` and is otherwise untouched.
- */
-/**
- * Give a promise a deadline it cannot outlive.
- *
- * `CapacitorHttp` resolves through the native bridge, and a bridge that is
- * missing or wedged leaves the promise pending forever rather than
- * rejecting — which surfaces as a scan button stuck on "Scanning…" with no
- * way back. A phone on a flaky connection produces the same symptom. Every
- * network path here therefore carries its own deadline.
- */
-function withDeadline<T>(work: Promise<T>, ms: number, what: string): Promise<T> {
-  return new Promise<T>((resolve, reject) => {
-    const timer = setTimeout(() => reject(new Error(`${what} timed out after ${ms / 1000}s`)), ms);
-    work.then(
-      (value) => {
-        clearTimeout(timer);
-        resolve(value);
-      },
-      (error) => {
-        clearTimeout(timer);
-        reject(error);
-      },
-    );
-  });
-}
+import { nativeFetch, withDeadline } from './http.js';
 
 /**
  * Mobile deadlines are much tighter than the server's.
@@ -68,28 +22,15 @@ function withDeadline<T>(work: Promise<T>, ms: number, what: string): Promise<T>
 const REQUEST_TIMEOUT_MS = 8_000;
 const SCAN_TIMEOUT_MS = 20_000;
 
-const nativeFetch: typeof fetch = async (input, init) => {
-  const url = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url;
-  const response = await withDeadline(
-    CapacitorHttp.request({
-      url,
-      method: (init?.method ?? 'GET') as 'GET',
-      headers: { accept: 'application/json' },
-      // Ask for the parsed body; Capacitor hands back an object for JSON.
-      responseType: 'json',
-      connectTimeout: REQUEST_TIMEOUT_MS,
-      readTimeout: REQUEST_TIMEOUT_MS,
-    }),
-    REQUEST_TIMEOUT_MS,
-    'Kalshi request',
-  );
-
-  const body = typeof response.data === 'string' ? response.data : JSON.stringify(response.data);
-  return new Response(body, {
-    status: response.status,
-    headers: { 'content-type': 'application/json' },
-  });
-};
+/**
+ * The whole pipeline, on the phone.
+ *
+ * There is no server in this build. The same `@arbterminal/core` the desktop
+ * app uses runs here unchanged — normalization, matching, the arb engine —
+ * because core has no dependencies and touches no I/O. Only the two edges
+ * differ: prices come from a file the user picked instead of a directory, and
+ * HTTP goes through the native layer.
+ */
 
 export interface ScanInput {
   /** CSV documents the user imported. */

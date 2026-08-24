@@ -7,11 +7,11 @@ export default defineConfig({
   resolve: {
     alias: {
       '@arbterminal/core': fileURLToPath(new URL('../../packages/core/src/index.ts', import.meta.url)),
-      // Import the adapter entry points directly rather than the package
-      // index: the index re-exports the filesystem-backed directory adapter,
-      // and `node:fs` cannot be bundled for a WebView.
-      '@arbterminal/adapters': fileURLToPath(
-        new URL('../../packages/adapters/src/index.ts', import.meta.url),
+      // The browser entry point, not the package index: the index also
+      // re-exports the filesystem-backed directory adapter, and `node:fs`
+      // cannot be bundled for a WebView.
+      '@arbterminal/adapters/browser': fileURLToPath(
+        new URL('../../packages/adapters/src/browser.ts', import.meta.url),
       ),
     },
   },

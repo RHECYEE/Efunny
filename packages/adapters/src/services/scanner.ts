@@ -1,11 +1,11 @@
+import { KalshiAdapter } from '../kalshi/adapter.js';
+import { PolymarketAdapter } from '../polymarket/adapter.js';
 import {
-  KalshiAdapter,
-  PolymarketAdapter,
   kalshiHistory,
   kalshiTrades,
   polymarketHistory,
   polymarketTrades,
-} from '@arbterminal/adapters';
+} from '../history/index.js';
 import {
   analyze,
   computeMetrics,
@@ -49,17 +49,51 @@ export interface ScannerFeed {
   error: string | null;
 }
 
+/**
+ * How the service reaches the venues, and how hard it is allowed to work.
+ *
+ * The transport is injected rather than assumed because a phone cannot use
+ * the global one: Kalshi rejects any request carrying an `Origin` header, and
+ * a WebView `fetch` always attaches one. The budgets are separate for the
+ * same reason — sixty history requests is a few seconds on a server and a
+ * visibly stalled screen on a handset.
+ */
+export interface ScannerOptions {
+  fetch_impl?: typeof fetch;
+  series?: string[];
+  tags?: string[];
+  /** Cap on history requests per cycle, since each market costs one. */
+  history_budget?: number;
+  request_timeout_ms?: number;
+  /** Markets pulled from each venue before the budget is spent on them. */
+  kalshi_market_limit?: number;
+  polymarket_event_limit?: number;
+}
+
 export class ScannerService {
   private cached: ScannerFeed | null = null;
   private cachedAt = 0;
   private inflight: Promise<ScannerFeed> | null = null;
 
-  constructor(
-    private readonly series = DEFAULT_SERIES,
-    private readonly tags = DEFAULT_TAGS,
-    /** Cap on history requests per cycle, since each market costs one. */
-    private readonly historyBudget = 60,
-  ) {}
+  private readonly series: string[];
+  private readonly tags: string[];
+  private readonly historyBudget: number;
+  private readonly options: ScannerOptions;
+
+  constructor(options: ScannerOptions = {}) {
+    this.options = options;
+    this.series = options.series ?? DEFAULT_SERIES;
+    this.tags = options.tags ?? DEFAULT_TAGS;
+    this.historyBudget = options.history_budget ?? 60;
+  }
+
+  /** Options every history and trade call shares. */
+  private get io(): { fetch_impl?: typeof fetch; request_timeout_ms?: number } {
+    return {
+      fetch_impl: this.options.fetch_impl,
+      request_timeout_ms: this.options.request_timeout_ms,
+    };
+  }
 
   async feed(): Promise<ScannerFeed> {
     if (this.cached && Date.now() - this.cachedAt < TTL_MS) return this.cached;
@@ -77,8 +111,18 @@ export class ScannerService {
     let failed = 0;
 
     try {
-      const kalshi = new KalshiAdapter({ series_tickers: this.series, market_limit: 400 });
-      const polymarket = new PolymarketAdapter({ tag_slugs: this.tags, event_limit: 120 });
+      const kalshi = new KalshiAdapter({
+        series_tickers: this.series,
+        market_limit: this.options.kalshi_market_limit ?? 400,
+        fetch_impl: this.options.fetch_impl,
+        timeout_ms: this.options.request_timeout_ms,
+      });
+      const polymarket = new PolymarketAdapter({
+        tag_slugs: this.tags,
+        event_limit: this.options.polymarket_event_limit ?? 120,
+        fetch_impl: this.options.fetch_impl,
+        request_timeout_ms: this.options.request_timeout_ms,
+      });
       const [k, p] = await Promise.all([
         kalshi.fetchSnapshots().catch(() => []),
         polymarket.fetchSnapshots().catch(() => []),
@@ -113,8 +157,8 @@ export class ScannerService {
         const ticker = entry.market.venue_market_id;
         try {
           const [history, trades] = await Promise.all([
-            kalshiHistory(ticker.split('-')[0]!, ticker, entry.market.market_id),
-            kalshiTrades(ticker).catch(() => []),
+            kalshiHistory(ticker.split('-')[0]!, ticker, entry.market.market_id, this.io),
+            kalshiTrades(ticker, this.io).catch(() => []),
           ]);
           if (history.points.length < 6) continue;
           const metrics = computeMetrics({
@@ -146,8 +190,8 @@ export class ScannerService {
           if (!tokens?.yes) continue;
           const condition = polymarket.conditionFor(entry.market.market_id);
           const [history, trades] = await Promise.all([
-            polymarketHistory(tokens.yes, entry.market.market_id),
-            condition ? polymarketTrades(condition).catch(() => []) : Promise.resolve([]),
+            polymarketHistory(tokens.yes, entry.market.market_id, this.io),
+            condition ? polymarketTrades(condition, this.io).catch(() => []) : Promise.resolve([]),
           ]);
           if (history.points.length < 6) continue;
           const metrics = computeMetrics({

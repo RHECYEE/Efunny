@@ -2,27 +2,41 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { Preferences } from '@capacitor/preferences';
 import { arbStatus } from '@arbterminal/core';
 import { ResultCard } from './components/ResultCard.js';
+import { Featured } from './components/Featured.js';
+import { Nfl } from './components/Nfl.js';
+import { Ufc } from './components/Ufc.js';
 import { scanOnDevice, type ScanOutput } from './scan.js';
 
 /**
  * Phone UI.
  *
  * The desktop terminal is a dense multi-panel layout that does not survive a
- * phone screen, so this is not a port of it. It does the three things the app
- * is for: take a capture, compare it against Kalshi, and answer whether there
- * is an arbitrage, how much can go in, and what comes back. Everything the
- * engine knows beyond that stays in the engine.
+ * phone screen, so none of this is a port of that layout. It is the same four
+ * modes, each rebuilt for one column.
+ *
+ * All four run on the handset. There is no server in this build: the service
+ * classes behind NFL, UFC and Featured are the ones the desktop runs, handed
+ * a native transport instead of the global `fetch`, because Kalshi rejects
+ * any request carrying an `Origin` header and a WebView always attaches one.
+ *
+ * One capability genuinely does not fit on a phone, and the UFC tab says so
+ * rather than hiding it — see `companion.ts`.
  */
 
 const STORE_CSV = 'arbterminal.csv';
 const STORE_RULES = 'arbterminal.rules';
 const STORE_SERIES = 'arbterminal.series';
 const STORE_BANKROLL = 'arbterminal.bankroll';
+const STORE_COMPANION = 'arbterminal.companion';
 
+type Mode = 'ARBITRAGE' | 'NFL' | 'UFC' | 'FEATURED';
 type Tab = 'IMPORT' | 'RESULTS';
 
 export function App() {
+  const [mode, setMode] = useState<Mode>('ARBITRAGE');
   const [tab, setTab] = useState<Tab>('IMPORT');
+  const [companion, setCompanion] = useState('');
+  const [settingsOpen, setSettingsOpen] = useState(false);
   const [csv, setCsv] = useState('');
   const [csvName, setCsvName] = useState('');
   const [rules, setRules] = useState('');
@@ -36,16 +50,18 @@ export function App() {
   // Restore the last capture so the app opens where it was left.
   useEffect(() => {
     void (async () => {
-      const [c, r, s, b] = await Promise.all([
+      const [c, r, s, b, comp] = await Promise.all([
         Preferences.get({ key: STORE_CSV }),
         Preferences.get({ key: STORE_RULES }),
         Preferences.get({ key: STORE_SERIES }),
         Preferences.get({ key: STORE_BANKROLL }),
+        Preferences.get({ key: STORE_COMPANION }),
       ]);
       if (c.value) setCsv(c.value);
       if (r.value) setRules(r.value);
       if (s.value) setSeries(s.value);
       if (b.value) setBankroll(b.value);
+      if (comp.value) setCompanion(comp.value);
     })();
   }, []);
 
@@ -121,7 +137,71 @@ export function App() {
         <span className="tag">read-only · no bets placed</span>
       </header>
 
-      <nav>
+      <nav className="modes">
+        {(['ARBITRAGE', 'NFL', 'UFC', 'FEATURED'] as Mode[]).map((m) => (
+          <button key={m} className={mode === m ? 'on' : ''} onClick={() => setMode(m)}>
+            {m === 'ARBITRAGE' ? 'Arb' : m === 'FEATURED' ? 'Featured' : m}
+          </button>
+        ))}
+        <button
+          className={`gear${settingsOpen ? ' on' : ''}`}
+          aria-label="Settings"
+          onClick={() => setSettingsOpen(!settingsOpen)}
+        >
+          ⚙
+        </button>
+      </nav>
+
+      {settingsOpen && (
+        <main>
+          <section>
+            <h2>Companion desktop</h2>
+            <input
+              value={companion}
+              inputMode="url"
+              autoCapitalize="none"
+              autoCorrect="off"
+              placeholder="192.168.1.40:8787"
+              onChange={(e) => {
+                setCompanion(e.target.value);
+                void persist(STORE_COMPANION, e.target.value);
+              }}
+            />
+            <p className="hint">
+              Optional, and only the UFC tab uses it. Career statistics come from UFCStats, which
+              only serves its pages to something that will run their script — a real browser.
+              A phone cannot supply one, so if the desktop app is running on this network the
+              phone borrows its browser for that one read. Leave this empty and the UFC tab still
+              shows both venues' prices and every fighter; the grappling model just does not run,
+              and the tab says so.
+            </p>
+          </section>
+          <p className="hint">
+            Everything else — the arbitrage scan, NFL and Featured — runs entirely on this device
+            and needs no companion.
+          </p>
+        </main>
+      )}
+
+      {!settingsOpen && mode === 'NFL' && (
+        <main>
+          <Nfl />
+        </main>
+      )}
+      {!settingsOpen && mode === 'UFC' && (
+        <main>
+          <Ufc companion={companion} />
+        </main>
+      )}
+      {!settingsOpen && mode === 'FEATURED' && (
+        <main>
+          <Featured />
+        </main>
+      )}
+
+      {!settingsOpen && mode === 'ARBITRAGE' && (
+        <>
+      <nav className="sub">
         <button className={tab === 'IMPORT' ? 'on' : ''} onClick={() => setTab('IMPORT')}>
           Import
         </button>
@@ -279,6 +359,8 @@ export function App() {
             </>
           )}
         </main>
+      )}
+        </>
       )}
     </div>
   );

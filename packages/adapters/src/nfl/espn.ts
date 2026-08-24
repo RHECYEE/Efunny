@@ -27,7 +27,23 @@ const WEB = 'https://site.web.api.espn.com/apis/site/v2/sports/football/nfl';
  * behind a different proxy should set the variable to something that names
  * this application honestly.
  */
-const USER_AGENT = process.env.ESPN_USER_AGENT ?? 'curl/8.5.0';
+/**
+ * Read an environment variable where there is an environment to read.
+ *
+ * This module runs inside a phone's WebView as well as on a server, and
+ * `process` simply does not exist there — touching it is a ReferenceError,
+ * not an undefined, so the whole NFL screen would fail on its first request
+ * rather than fall back to the default.
+ */
+function env(name: string): string | undefined {
+  // Reached through globalThis rather than the bare identifier: a WebView
+  // build has no Node types either, so naming `process` directly would not
+  // compile there even when the guard is correct at runtime.
+  const global = globalThis as { process?: { env?: Record<string, string | undefined> } };
+  return global.process?.env?.[name];
+}
+
+const USER_AGENT = env('ESPN_USER_AGENT') ?? 'curl/8.5.0';
 
 export interface EspnOptions {
   fetch_impl?: typeof fetch;

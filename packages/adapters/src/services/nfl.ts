@@ -16,8 +16,8 @@ import {
   type GameResult,
   type NflInjury,
   type UpcomingGame,
-} from '@arbterminal/adapters';
-import { KalshiAdapter } from '@arbterminal/adapters';
+} from '../browser.js';
+import { KalshiAdapter } from '../kalshi/adapter.js';
 import {
   compareToMarket,
   diffSnapshots,
@@ -133,6 +133,19 @@ interface TeamBundle {
   raw: (name: string) => number | null;
 }
 
+/**
+ * How the service reaches its feeds.
+ *
+ * Injected rather than assumed, so the same service runs on a server and
+ * inside a phone's WebView — where the global `fetch` cannot be used, because
+ * Kalshi rejects any request carrying an `Origin` header and a WebView always
+ * attaches one.
+ */
+export interface NflOptions {
+  fetch_impl?: typeof fetch;
+  request_timeout_ms?: number;
+}
+
 export class NflService {
   private teams = new Map<string, TeamBundle>();
   private teamsAt = 0;
@@ -146,9 +159,19 @@ export class NflService {
   private statsSeason = 0;
   private priorSeason = false;
 
+  constructor(private readonly options: NflOptions = {}) {}
+
+  /** Transport options every feed call shares. */
+  private get io(): NflOptions {
+    return {
+      fetch_impl: this.options.fetch_impl,
+      request_timeout_ms: this.options.request_timeout_ms,
+    };
+  }
+
   async board(): Promise<NflBoard> {
     try {
-      const s = await fetchScoreboard();
+      const s = await fetchScoreboard(this.io);
       return {
         games: s.games,
         season_year: s.season_year,
@@ -176,7 +199,7 @@ export class NflService {
    * results — a week-one screen has a regular-season flag and no data.
    */
   private async resolveStatsSeason(): Promise<{ season: number; prior: boolean }> {
-    const s = await fetchScoreboard();
+    const s = await fetchScoreboard(this.io);
     if (s.season_type === 2 && (s.week ?? 0) >= 4) {
       return { season: s.season_year, prior: false };
     }
@@ -191,12 +214,12 @@ export class NflService {
     if (!id) return null;
     try {
       const [raw, results, record, news] = await Promise.all([
-        fetchTeamStats(id, season),
-        fetchResults(abbr, season),
-        fetchRecordSplits(id, season).catch(() => ({
+        fetchTeamStats(id, season, this.io),
+        fetchResults(abbr, season, this.io),
+        fetchRecordSplits(id, season, this.io).catch(() => ({
           overall: null, home: null, road: null, division: null, conference: null,
         })),
-        fetchNews(id, { limit: 8 }).catch(() => []),
+        fetchNews(id, { ...this.io, limit: 8 }).catch(() => []),
       ]);
 
       const games = results.length;
@@ -263,7 +286,7 @@ export class NflService {
       return this.standings;
     }
     try {
-      this.standings = await fetchStandings(season);
+      this.standings = await fetchStandings(season, this.io);
       this.standingsAt = Date.now();
     } catch {
       // An empty map means the splits report as unknown rather than as even.
@@ -276,7 +299,7 @@ export class NflService {
       return this.injuries;
     }
     try {
-      this.injuries = await fetchInjuries();
+      this.injuries = await fetchInjuries(this.io);
       this.injuriesAt = Date.now();
     } catch {
       // An injury feed that fails leaves the report empty, which the screen
@@ -296,7 +319,12 @@ export class NflService {
       return this.gameMarkets;
     }
     try {
-      const adapter = new KalshiAdapter({ series_tickers: ['KXNFLGAME'], market_limit: 200 });
+      const adapter = new KalshiAdapter({
+        series_tickers: ['KXNFLGAME'],
+        market_limit: 200,
+        fetch_impl: this.options.fetch_impl,
+        timeout_ms: this.options.request_timeout_ms,
+      });
       const snaps = await adapter.fetchSnapshots();
       this.gameMarkets = snaps
         .flatMap((s) => s.markets)
@@ -379,7 +407,7 @@ export class NflService {
 
     const stadium = STADIUMS[homeAbbr];
     const forecast = stadium
-      ? await fetchForecast(stadium, game.date).catch(() => ({
+      ? await fetchForecast(stadium, game.date, this.io).catch(() => ({
           temperature_f: null,
           wind_mph: null,
           precipitation_in: null,

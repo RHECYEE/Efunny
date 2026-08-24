@@ -33,6 +33,24 @@ const DEFAULTS: Required<MatchOptions> = {
   fuzzy_title_floor: 0.45,
 };
 
+/**
+ * Drop keys that are present but undefined, so defaults survive them.
+ *
+ * `{...DEFAULTS, ...options}` treats an explicit `undefined` as a value, so a
+ * caller forwarding a setting it happens not to have — `min_confidence_to_report:
+ * config.floor` where the config is silent — replaces the floor with undefined
+ * rather than leaving it alone. Every comparison against it then reads false,
+ * which does not throw: it quietly reports matches the floor exists to
+ * suppress.
+ */
+function defined<T extends object>(options: T): Partial<T> {
+  const out: Partial<T> = {};
+  for (const [key, value] of Object.entries(options)) {
+    if (value !== undefined) out[key as keyof T] = value as T[keyof T];
+  }
+  return out;
+}
+
 function check(name: string, passed: boolean, detail: string, blocking: boolean): MatchCheck {
   return { name, passed, detail, blocking };
 }
@@ -67,7 +85,7 @@ export function verifyMatch(
   method: MatchMethod = 'FUZZY',
   options: MatchOptions = {},
 ): MarketMatch {
-  const opts = { ...DEFAULTS, ...options };
+  const opts = { ...DEFAULTS, ...defined(options) };
   const checks: MatchCheck[] = [];
 
   // --- Blocking structural checks -------------------------------------
@@ -319,7 +337,7 @@ export function matchMarkets(
   markets: Market[],
   options: MatchOptions = {},
 ): MarketMatch[] {
-  const opts = { ...DEFAULTS, ...options };
+  const opts = { ...DEFAULTS, ...defined(options) };
   const byEvent = new Map<string, Market[]>();
   for (const market of markets) {
     const key = candidateKey(market);

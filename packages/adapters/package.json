@@ -6,7 +6,8 @@
   "description": "Venue adapters. Each produces normalized Market/Quote objects; nothing here is imported by the arb engine.",
   "main": "./src/index.ts",
   "exports": {
-    ".": "./src/index.ts"
+    ".": "./src/index.ts",
+    "./browser": "./src/browser.ts"
   },
   "dependencies": {
     "@arbterminal/core": "0.1.0"

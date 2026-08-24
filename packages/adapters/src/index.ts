@@ -1,74 +1,12 @@
 /**
- * @arbterminal/adapters — venue integrations.
+ * @arbterminal/adapters — venue integrations, for Node.
  *
- * Nothing in this package is imported by the matching or arbitrage engines.
- * Adding a venue means adding a directory here and registering the adapter;
- * no engine code changes.
+ * Everything in `browser.ts`, plus the filesystem-backed CSV directory
+ * adapter. A WebView build must import `browser.js` instead; see the note
+ * there.
  */
 
-export * from './types.js';
-export * from './kalshi/client.js';
-export * from './kalshi/fees.js';
-export * from './kalshi/normalize.js';
-export * from './kalshi/adapter.js';
-export * from './polymarket/client.js';
-export * from './polymarket/fees.js';
-export * from './polymarket/adapter.js';
-// Same collision as the manual normalizer below: every adapter owns a
-// `toMarket`/`toQuote` of its own, so they are named rather than splatted.
-export {
-  POLYMARKET_VENUE,
-  categoryOf as polymarketCategoryOf,
-  detectExhaustive as polymarketDetectExhaustive,
-  isTradeable as polymarketIsTradeable,
-  parseJsonArray as polymarketParseJsonArray,
-  tokenIdsOf as polymarketTokenIds,
-  toLadder as polymarketToLadder,
-  toOrderBook as polymarketToOrderBook,
-  toSettlement as polymarketToSettlement,
-  toMarket as polymarketToMarket,
-  toQuote as polymarketToQuote,
-  toEvent as polymarketToEvent,
-} from './polymarket/normalize.js';
-export * from './history/index.js';
-export * from './nfl/espn.js';
-export * from './nfl/stadiums.js';
-export * from './fighters/ufcstats.js';
-export * from './fighters/dossier.js';
-export * from './fighters/card.js';
-export * from './manual/csv.js';
-export * from './manual/repair.js';
-export * from './manual/rules.js';
-export * from './manual/adapter.js';
+export * from './browser.js';
+
 // Filesystem-backed variant. Node only — the mobile build must not import it.
 export * from './manual/node.js';
-// `toMarket`, `toQuote` and friends exist in both normalizers by design —
-// each adapter owns its own mapping — so the manual ones are renamed rather
-// than star-exported into a collision.
-export {
-  interpret as interpretManualRow,
-  parseDeadline as parseManualDeadline,
-  categoryOf as manualCategoryOf,
-  toMarket as manualToMarket,
-  toEvent as manualToEvent,
-  toQuote as manualToQuote,
-  toBook as manualToBook,
-  type Interpretation as ManualInterpretation,
-  type NormalizeContext as ManualNormalizeContext,
-} from './manual/normalize.js';
-
-import { FeeBook } from '@arbterminal/core';
-import { AdapterRegistry, type VenueAdapter } from './types.js';
-
-/** Collect every registered adapter's fee schedule into one book. */
-export function feeBookFor(adapters: VenueAdapter[]): FeeBook {
-  const book = new FeeBook();
-  for (const adapter of adapters) book.register(adapter.fee_model);
-  return book;
-}
-
-export function registryOf(adapters: VenueAdapter[]): AdapterRegistry {
-  const registry = new AdapterRegistry();
-  for (const adapter of adapters) registry.register(adapter);
-  return registry;
-}

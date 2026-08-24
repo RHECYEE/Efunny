@@ -212,3 +212,28 @@ describe('adapter wiring', () => {
     expect(result.opportunities.every((o) => o.type !== 'GUARANTEED_ARB')).toBe(true);
   });
 });
+
+describe('option merging', () => {
+  it('keeps its defaults when a caller forwards an absent setting', async () => {
+    // `{...DEFAULTS, ...options}` treats an explicit undefined as a value.
+    // A service forwarding `timeout_ms: config.timeout_ms` from a config that
+    // does not set it therefore erased the timeout, and
+    // `AbortSignal.timeout(undefined)` threw on every request after that —
+    // silently, because the callers catch and return an empty list, so a
+    // whole venue just stopped appearing.
+    let sawSignal: AbortSignal | null = null;
+    const fetchImpl = (async (_url: string, init?: RequestInit) => {
+      sawSignal = init?.signal ?? null;
+      return new Response(JSON.stringify({ events: [], cursor: '' }), {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      });
+    }) as unknown as typeof fetch;
+
+    const client = new KalshiClient({ fetch_impl: fetchImpl, timeout_ms: undefined });
+    await client.listEvents({ limit: 1 });
+    expect(sawSignal).not.toBeNull();
+    expect(sawSignal!.aborted).toBe(false);
+  });
+});
+
