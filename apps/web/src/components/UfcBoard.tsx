@@ -116,6 +116,147 @@ const STYLE_MARK: Record<string, string> = {
   UNKNOWN: 'unknown',
 };
 
+interface DeepRead {
+  fights_read: number;
+  rounds_read: number;
+  takedown_attempts_per15: number | null;
+  reshoot_rate: number | null;
+  control_per_takedown: number | null;
+  control_seconds_per_round: number | null;
+  controlled_seconds_per_round: number | null;
+  escape_rate: number | null;
+  held_rounds: number;
+  cardio_drift: number | null;
+  notes: string[];
+  gaps: string[];
+}
+
+interface DeepMatchup {
+  fight_id: string;
+  fighters: Array<{ name: string; deep: DeepRead; reconciliation: string | null } | null>;
+  error: string | null;
+}
+
+/**
+ * The expensive read, fetched only when asked for.
+ *
+ * A page load per bout, so it never runs as part of the board scan. What it
+ * buys is the set of questions a career average cannot answer: whether he
+ * re-shoots, whether he holds position, and whether the man underneath gets
+ * back up.
+ */
+function DeepPanel({ fightId }: { fightId: string }) {
+  const [data, setData] = useState<DeepMatchup | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [asked, setAsked] = useState(false);
+
+  async function load() {
+    setAsked(true);
+    setLoading(true);
+    try {
+      const r = await fetch(`/api/ufc/deep?fight=${encodeURIComponent(fightId)}`);
+      setData((await r.json()) as DeepMatchup);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  if (!asked) {
+    return (
+      <button
+        className="deep-btn"
+        onClick={(e) => {
+          e.stopPropagation();
+          void load();
+        }}
+      >
+        Deep read — control time, get-ups, re-shoots
+      </button>
+    );
+  }
+  if (loading) return <p className="src">Reading the last five bouts for each fighter…</p>;
+  if (!data || data.error) return <p className="src">{data?.error ?? 'Could not load.'}</p>;
+
+  const secs = (v: number | null) => (v === null ? '—' : `${Math.round(v)}s`);
+
+  return (
+    <div className="deep" onClick={(e) => e.stopPropagation()}>
+      {data.fighters.map((f) =>
+        f === null ? null : (
+          <div key={f.name}>
+            <b>{f.name}</b>
+            <span className="src">
+              {' '}
+              — {f.deep.fights_read} bouts, {f.deep.rounds_read} rounds read
+            </span>
+            {f.deep.rounds_read === 0 ? (
+              <p className="src">No readable round data.</p>
+            ) : (
+              <>
+                <div className="deep-row">
+                  <span>Takedown attempts / 15</span>
+                  <span>{f.deep.takedown_attempts_per15?.toFixed(1) ?? '—'}</span>
+                </div>
+                <div className="deep-row">
+                  <span>Re-shoots per round with an attempt</span>
+                  <span>{f.deep.reshoot_rate?.toFixed(1) ?? '—'}</span>
+                </div>
+                <div className="deep-row">
+                  <span>Control per round, on top</span>
+                  <span>{secs(f.deep.control_seconds_per_round)}</span>
+                </div>
+                <div className="deep-row" title="How long an individual takedown sticks. Low with high control per round means volume, not a weak hold.">
+                  <span>Control per takedown landed</span>
+                  <span>{secs(f.deep.control_per_takedown)}</span>
+                </div>
+                <div className="deep-row">
+                  <span>Time underneath per round</span>
+                  <span>{secs(f.deep.controlled_seconds_per_round)}</span>
+                </div>
+                <div
+                  className="deep-row"
+                  title="Blank when there were too few rounds spent on the bottom to read."
+                >
+                  <span>
+                    Reversals per round underneath
+                    {/* The rate is meaningless without the rounds it came off. */}
+                    <span className="src"> over {f.deep.held_rounds} rd</span>
+                  </span>
+                  <span>{f.deep.escape_rate?.toFixed(2) ?? '—'}</span>
+                </div>
+                <div className="deep-row" title="Early rounds against late rounds within each bout, then averaged. Not recent fights against older ones.">
+                  <span>Output drift, early to late rounds</span>
+                  <span>
+                    {f.deep.cardio_drift === null
+                      ? '—'
+                      : `${f.deep.cardio_drift > 0 ? '+' : ''}${f.deep.cardio_drift.toFixed(0)} strikes/rd`}
+                  </span>
+                </div>
+                {f.deep.notes.map((n) => (
+                  <p className="src" key={n}>
+                    {n}
+                  </p>
+                ))}
+                {f.reconciliation && <p className="caution">{f.reconciliation}</p>}
+              </>
+            )}
+          </div>
+        ),
+      )}
+      {data.fighters[0]?.deep.gaps.length ? (
+        <details className="mm-gaps">
+          <summary>Still not measured</summary>
+          <ul>
+            {data.fighters[0].deep.gaps.map((g) => (
+              <li key={g}>{g}</li>
+            ))}
+          </ul>
+        </details>
+      ) : null}
+    </div>
+  );
+}
+
 export function UfcBoard() {
   const [board, setBoard] = useState<Board | null>(null);
   const [loading, setLoading] = useState(true);
@@ -301,6 +442,8 @@ export function UfcBoard() {
                           </p>
                         </div>
                       )}
+
+                      <DeepPanel fightId={card.fight_id} />
 
                       <details className="mm-gaps">
                         <summary>What this does not measure</summary>

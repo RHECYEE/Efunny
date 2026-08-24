@@ -8,8 +8,15 @@ import {
   type Fighter,
   type FighterProfile,
 } from '@arbterminal/adapters';
-import { computeMismatch, type FighterStats } from '@arbterminal/core';
-import { fetchProfiles } from './ufcstatsBrowser.js';
+import {
+  computeDeepRead,
+  computeMismatch,
+  reconcile,
+  type DeepRead,
+  type FighterStats,
+  type FightLines,
+} from '@arbterminal/core';
+import { fetchProfiles, fetchRecentFightDetails } from './ufcstatsBrowser.js';
 
 /**
  * A career profile into the shape the mismatch model wants.
@@ -187,6 +194,78 @@ export class UfcBoardService {
           this.cached?.coverage ??
           { fights: 0, both_known: 0, both_scored: 0, two_venue: 0, dossier_size: 0 },
         scanned_at: scannedAt,
+        error: error instanceof Error ? error.message : String(error),
+      };
+    }
+  }
+}
+
+
+/* ------------------------------------------------------------------ *
+ * Deep read
+ * ------------------------------------------------------------------ */
+
+export interface DeepFighterRead {
+  name: string;
+  deep: DeepRead;
+  /** How the detailed sample squares with the career averages. */
+  reconciliation: string | null;
+}
+
+export interface DeepMatchupRead {
+  fight_id: string;
+  fighters: [DeepFighterRead | null, DeepFighterRead | null];
+  error: string | null;
+}
+
+/**
+ * The expensive read, for one matchup.
+ *
+ * Separate from the board because it costs a page load per bout — five
+ * fights each side is ten loads and the better part of a minute. Cached for
+ * as long as the career figures, since a fighter's last five bouts do not
+ * change between now and the weekend.
+ */
+export class UfcDeepService {
+  constructor(private readonly board: UfcBoardService) {}
+
+  async read(fightId: string): Promise<DeepMatchupRead> {
+    try {
+      const board = await this.board.board();
+      const card = board.cards.find((c) => c.fight_id === fightId);
+      if (!card) return { fight_id: fightId, fighters: [null, null], error: 'No such fight.' };
+
+      const names = card.sides.map((s) => s.name) as [string, string];
+      const profiles = await fetchProfiles(names, { budget: 2 });
+
+      const reads = await Promise.all(
+        names.map(async (name): Promise<DeepFighterRead | null> => {
+          const profile = profiles.get(name);
+          if (!profile) return null;
+          const details = await fetchRecentFightDetails(name, profile.url, 5);
+
+          // Already oriented on the way in: slot zero is the fighter whose
+          // page the bout was reached from, matched by page URL rather than
+          // by reading a name out of a cell that holds two of them.
+          const lines: FightLines[] = details.map((d) => ({
+            own: d.rounds[0],
+            opponent: d.rounds[1],
+          }));
+
+          const deep = computeDeepRead(lines);
+          return {
+            name,
+            deep,
+            reconciliation: reconcile(profile.stats.td_per15, deep),
+          };
+        }),
+      );
+
+      return { fight_id: fightId, fighters: [reads[0]!, reads[1]!], error: null };
+    } catch (error) {
+      return {
+        fight_id: fightId,
+        fighters: [null, null],
         error: error instanceof Error ? error.message : String(error),
       };
     }

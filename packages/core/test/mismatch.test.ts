@@ -4,8 +4,11 @@ import {
   computeMismatch,
   defenceConfidence,
   estimateAttemptsFaced,
+  computeDeepRead,
   mismatchLabel,
+  reconcile,
   type FighterStats,
+  type RoundLine,
 } from '../src/index.js';
 
 const base: FighterStats = {
@@ -133,5 +136,144 @@ describe('physical and situational read', () => {
     );
     expect(m.no_grappler).toBe(true);
     expect(m.physical!.reach_advantage_inches).toBe(6);
+  });
+});
+
+describe('deep read', () => {
+  const line = (over: Partial<RoundLine> = {}): RoundLine => ({
+    round: 1, knockdowns: 0,
+    significant_strikes_landed: 20, significant_strikes_attempted: 40,
+    takedowns_landed: 0, takedowns_attempted: 0,
+    submission_attempts: 0, reversals: 0, control_seconds: 0,
+    ...over,
+  });
+
+  it('separates a fighter who holds position from one who does not', () => {
+    // Putting somebody down and keeping them there are different skills, and
+    // a takedown count cannot tell them apart.
+    const holder = computeDeepRead([{
+      own: [line({ takedowns_landed: 1, takedowns_attempted: 2, control_seconds: 200 })],
+      opponent: [line()],
+    }]);
+    const dumper = computeDeepRead([{
+      own: [line({ takedowns_landed: 3, takedowns_attempted: 4, control_seconds: 20 })],
+      opponent: [line()],
+    }]);
+    expect(holder.control_per_takedown).toBe(200);
+    expect(dumper.control_per_takedown).toBeCloseTo(6.67, 1);
+    expect(holder.notes.join(' ')).toContain('Holds position');
+    expect(dumper.notes.join(' ')).toContain('does not hold');
+  });
+
+  it('does not call a high-volume wrestler a dumper', () => {
+    // Control per takedown reads backwards on its own: each new takedown
+    // means the last position ended, so a man who takes you down five times
+    // and holds five minutes scores below one who did it once and held four.
+    // He controlled more of the fight, and the note has to say so.
+    const volume = computeDeepRead([{
+      own: [
+        line({ takedowns_landed: 2, takedowns_attempted: 2, control_seconds: 160 }),
+        line({ takedowns_landed: 3, takedowns_attempted: 5, control_seconds: 140 }),
+      ],
+      opponent: [line(), line()],
+    }]);
+    expect(volume.control_seconds_per_round).toBe(150);
+    expect(volume.control_per_takedown).toBe(60);
+    expect(volume.notes.join(' ')).toContain('Holds position');
+    expect(volume.notes.join(' ')).not.toContain('does not hold');
+  });
+
+  it('reads get-up ability from time underneath against reversals', () => {
+    // The piece a takedown-defence percentage misses entirely: being taken
+    // down twice and losing four seconds or eight minutes are different
+    // fights.
+    const stuck = computeDeepRead([{
+      own: [line({ reversals: 0 }), line({ reversals: 0 })],
+      opponent: [line({ control_seconds: 240 }), line({ control_seconds: 240 })],
+    }]);
+    expect(stuck.controlled_seconds_per_round).toBe(240);
+    expect(stuck.escape_rate).toBe(0);
+    expect(stuck.notes.join(' ')).toContain('stay where he is put');
+  });
+
+  it('will not quote a get-up rate off a single round underneath', () => {
+    // "0% escapes" off one round is a coin flip wearing a percentage.
+    const thin = computeDeepRead([{
+      own: [line({ reversals: 0 }), line({ reversals: 0 })],
+      opponent: [line({ control_seconds: 240 }), line({ control_seconds: 0 })],
+    }]);
+    expect(thin.escape_rate).toBeNull();
+    expect(thin.held_rounds).toBe(1);
+    expect(thin.notes.join(' ')).toContain('too few');
+    expect(thin.notes.join(' ')).not.toContain('stay where he is put');
+  });
+
+  it('counts re-shooting rather than only landed takedowns', () => {
+    const persistent = computeDeepRead([{
+      own: [line({ takedowns_landed: 1, takedowns_attempted: 5 })],
+      opponent: [line()],
+    }]);
+    expect(persistent.reshoot_rate).toBe(4);
+    expect(persistent.takedown_attempts_per15).toBe(15);
+  });
+
+  it('measures output decline inside a fight, not across the sample', () => {
+    const fading = computeDeepRead([
+      {
+        own: [
+          line({ round: 1, significant_strikes_landed: 30 }),
+          line({ round: 2, significant_strikes_landed: 30 }),
+          line({ round: 3, significant_strikes_landed: 12 }),
+        ],
+        opponent: [line(), line(), line()],
+      },
+    ]);
+    expect(fading.output_first_half).toBe(30);
+    expect(fading.output_second_half).toBe(12);
+    expect(fading.cardio_drift).toBe(-18);
+    expect(fading.notes.join(' ')).toContain('Output falls');
+  });
+
+  it('does not read a recent slump as a cardio problem', () => {
+    // Bouts arrive newest first. Splitting the pooled round list compares
+    // recent fights against older ones, which is a form-curve reading wearing
+    // a cardio label — two even one-round bouts must produce no drift at all.
+    const slump = computeDeepRead([
+      { own: [line({ significant_strikes_landed: 12 })], opponent: [line()] },
+      { own: [line({ significant_strikes_landed: 30 })], opponent: [line()] },
+    ]);
+    expect(slump.cardio_drift).toBeNull();
+    expect(slump.notes.join(' ')).not.toContain('Output');
+  });
+
+  it('averages the within-fight split across bouts of different lengths', () => {
+    const mixed = computeDeepRead([
+      {
+        own: [line({ significant_strikes_landed: 40 }), line({ significant_strikes_landed: 20 })],
+        opponent: [line(), line()],
+      },
+      {
+        own: [line({ significant_strikes_landed: 40 }), line({ significant_strikes_landed: 10 })],
+        opponent: [line(), line()],
+      },
+    ]);
+    expect(mixed.output_first_half).toBe(40);
+    expect(mixed.output_second_half).toBe(15);
+  });
+
+  it('says nothing rather than guessing when no bouts were read', () => {
+    const none = computeDeepRead([]);
+    expect(none.rounds_read).toBe(0);
+    expect(none.control_per_takedown).toBeNull();
+    expect(none.notes).toHaveLength(0);
+    expect(none.gaps.length).toBeGreaterThan(0);
+  });
+
+  it('flags high volume with low conversion', () => {
+    const deep = computeDeepRead([{
+      own: [line({ takedowns_landed: 1, takedowns_attempted: 6 })],
+      opponent: [line()],
+    }]);
+    expect(reconcile(2.0, deep)).toContain('low conversion');
   });
 });

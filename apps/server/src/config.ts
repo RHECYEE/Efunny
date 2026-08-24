@@ -1,3 +1,4 @@
+import { existsSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { isSea } from 'node:sea';
@@ -9,6 +10,30 @@ function num(name: string, fallback: number): number {
   if (!raw) return fallback;
   const parsed = Number(raw);
   return Number.isFinite(parsed) ? parsed : fallback;
+}
+
+/**
+ * Where a captured sportsbook CSV is looked for.
+ *
+ * The obvious default — `imports/draftkings` relative to the working
+ * directory — resolves against `apps/server`, because that is where the
+ * workspace script runs the server from. A capture dropped in the folder at
+ * the top of the checkout was then silently invisible: no error, no venue,
+ * just an arbitrage tab with one side of the market on it. So the checkout
+ * root is tried as well, and the first folder that exists wins.
+ */
+function defaultImportsDirectory(): string {
+  const relative = join('imports', 'draftkings');
+  const candidates = [
+    relative,
+    // From apps/server, and from a build output a level deeper.
+    join('..', '..', relative),
+    join('..', '..', '..', relative),
+  ];
+  for (const candidate of candidates) {
+    if (existsSync(candidate)) return candidate;
+  }
+  return relative;
 }
 
 /**
@@ -57,7 +82,7 @@ export const config = {
    * Folder of manually captured sportsbook CSVs. Every `.csv` in it is
    * imported as a venue named by `MANUAL_VENUE`. Absent folder, no venue.
    */
-  manual_imports_directory: process.env.MANUAL_IMPORTS_DIR ?? 'imports/draftkings',
+  manual_imports_directory: process.env.MANUAL_IMPORTS_DIR ?? defaultImportsDirectory(),
   manual_venue: process.env.MANUAL_VENUE ?? 'draftkings',
   manual_display_name: process.env.MANUAL_VENUE_NAME ?? 'DraftKings',
   /** Stake the book would plausibly accept on one leg. Assumed, not observed. */

@@ -6,7 +6,10 @@ import {
   isStyleClash,
   nameKey,
   parseCareerStats,
+  parseClock,
+  parseFightDetail,
   parseFightRow,
+  parseOfPair,
   type Fighter,
 } from '../src/index.js';
 import { venueApiProvenance, type Market, type Quote } from '@arbterminal/core';
@@ -177,5 +180,62 @@ describe('UFCStats parsing', () => {
     expect(row?.takedowns).toEqual([5, 0]);
     expect(row?.submission_attempts).toEqual([4, 0]);
     expect(row?.result).toBe('WIN');
+  });
+});
+
+describe('fight-detail parsing', () => {
+  it('splits paired cells into each fighter\'s numbers', () => {
+    expect(parseOfPair('2 of 7')).toEqual([2, 7]);
+    expect(parseClock('2:49')).toBe(169);
+    expect(parseClock('--')).toBe(0);
+  });
+
+  // Captured from the Hooker/Saint Denis bout page. The column order matters
+  // more than it looks: 4 is total strikes and 5 is takedowns, and both are
+  // "n of m" pairs, so reading the wrong one silently reports a boxing round
+  // as a wrestling one.
+  const HOOKER = { href: 'http://ufcstats.com/fighter-details/193b9d1858bc4df3', text: 'Dan Hooker' };
+  const BSD = { href: 'http://ufcstats.com/fighter-details/c2299ec916bc7c56', text: 'Benoit Saint Denis' };
+  const PERSONS = [HOOKER, BSD, HOOKER, BSD];
+  const ROWS = [
+    ['Dan Hooker Benoit Saint Denis', '0 0', '30 of 47 97 of 127', '63% 76%', '51 of 68 170 of 205', '0 of 1 2 of 9', '0% 22%', '2 2', '0 0', '0:28 6:14'],
+    ['Dan Hooker Benoit Saint Denis', '0 0', '26 of 41 35 of 46', '63% 76%', '34 of 49 62 of 73', '0 of 0 2 of 6', '--- 33%', '1 0', '0 0', '0:22 1:55'],
+    ['Dan Hooker Benoit Saint Denis', '0 0', '4 of 6 62 of 81', '66% 76%', '17 of 19 108 of 132', '0 of 1 0 of 3', '0% 0%', '1 2', '0 0', '0:06 4:19'],
+  ];
+
+  it('reads per-round lines for both fighters', () => {
+    const d = parseFightDetail('http://x', ROWS, PERSONS)!;
+    expect(d.rounds[0]).toHaveLength(2);
+    // Round one: Hooker faced no attempts, Saint Denis shot six.
+    expect(d.rounds[0][0]!.takedowns_attempted).toBe(0);
+    expect(d.rounds[1][0]!.takedowns_attempted).toBe(6);
+    expect(d.rounds[1][0]!.takedowns_landed).toBe(2);
+    // Not the 49 total strikes sitting in the column beside it.
+    expect(d.rounds[0][0]!.significant_strikes_attempted).toBe(41);
+    expect(d.rounds[0][0]!.control_seconds).toBe(22);
+    expect(d.rounds[1][1]!.control_seconds).toBe(259);
+  });
+
+  it('takes identity from the fighter links, not the name cell', () => {
+    // "Dan Hooker Benoit Saint Denis" is five words with no separator; every
+    // rule for cutting it in half puts "Denis" on the wrong side of one
+    // matchup or another.
+    const d = parseFightDetail('http://x', ROWS, PERSONS)!;
+    expect(d.fighters).toEqual(['Dan Hooker', 'Benoit Saint Denis']);
+    expect(d.fighter_urls[1]).toBe(BSD.href);
+  });
+
+  it('refuses a bout that has not happened yet', () => {
+    // A booked fight shows a pre-fight comparison of three-cell rows and no
+    // round lines at all. Scoring that as a fight read zeros as facts.
+    const upcoming = [
+      ['Wins/Losses/Draws', '24-14-0', '23-2-0'],
+      ['Takedown Defense', '77%', '0%'],
+    ];
+    expect(parseFightDetail('http://x', upcoming, PERSONS)).toBeNull();
+  });
+
+  it('refuses a page missing one of the two fighter links', () => {
+    expect(parseFightDetail('http://x', ROWS, [HOOKER, HOOKER])).toBeNull();
   });
 });

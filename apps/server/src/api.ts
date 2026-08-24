@@ -1,5 +1,5 @@
 import Fastify, { type FastifyInstance } from 'fastify';
-import { UfcBoardService } from './ufc.js';
+import { UfcBoardService, UfcDeepService } from './ufc.js';
 import { ScannerService } from './scanner.js';
 import { NflService } from './nfl.js';
 import {
@@ -77,6 +77,7 @@ export function buildApi(deps: ApiDeps): FastifyInstance {
   const app = Fastify({ logger: false });
   const { pipeline, store, adapters } = deps;
   const ufc = deps.ufc ?? new UfcBoardService();
+  const ufcDeep = new UfcDeepService(ufc);
   const scanner = deps.scanner ?? new ScannerService();
   const nfl = deps.nfl ?? new NflService();
 
@@ -87,6 +88,14 @@ export function buildApi(deps: ApiDeps): FastifyInstance {
   // The UFC board is its own scan against its own venues, so it does not ride
   // the main pipeline's cycle.
   app.get('/api/ufc', async () => ufc.board());
+
+  // Expensive and on demand: a page load per bout, so it is never part of a
+  // board scan.
+  app.get('/api/ufc/deep', async (request, reply) => {
+    const q = request.query as Record<string, string>;
+    if (!q.fight) return reply.code(400).send({ error: 'fight id required' });
+    return ufcDeep.read(q.fight);
+  });
 
   app.get('/api/scanner', async () => scanner.feed());
 

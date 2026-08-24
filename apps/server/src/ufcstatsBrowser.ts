@@ -1,7 +1,7 @@
 import { mkdirSync, readFileSync, writeFileSync, existsSync } from 'node:fs';
 import { join } from 'node:path';
-import type { FighterProfile, UfcStatsBrowser } from '@arbterminal/adapters';
-import { fetchProfile } from '@arbterminal/adapters';
+import type { FightDetail, FighterProfile, UfcStatsBrowser } from '@arbterminal/adapters';
+import { fetchFightDetails, fetchProfile } from '@arbterminal/adapters';
 
 /**
  * Playwright-backed reader for UFCStats, plus a disk cache.
@@ -154,4 +154,62 @@ export async function fetchProfiles(
   }
 
   return out;
+}
+
+/* ------------------------------------------------------------------ *
+ * Fight detail
+ * ------------------------------------------------------------------ */
+
+interface DetailCacheEntry {
+  fetched_at: number;
+  details: FightDetail[];
+}
+
+function detailPath(name: string): string {
+  const key = name.toLowerCase().replace(/[^a-z0-9]+/g, '_');
+  return join(CACHE_DIR, `${key}.fights.json`);
+}
+
+/**
+ * Per-round lines from a fighter's recent bouts.
+ *
+ * One page load per fight, so this is bounded hard and cached for as long as
+ * the career figures are. It is fetched when somebody opens a matchup rather
+ * than for every fighter on a card, because thirty fights at four seconds
+ * each is two minutes for a screen nobody may look at.
+ */
+export async function fetchRecentFightDetails(
+  name: string,
+  fighterUrl: string,
+  limit = 5,
+): Promise<FightDetail[]> {
+  try {
+    const path = detailPath(name);
+    if (existsSync(path)) {
+      const entry = JSON.parse(readFileSync(path, 'utf8')) as DetailCacheEntry;
+      if (Date.now() - entry.fetched_at <= CACHE_TTL_MS) return entry.details;
+    }
+  } catch {
+    // Fall through and refetch.
+  }
+
+  let session: Awaited<ReturnType<typeof openBrowser>> | null = null;
+  try {
+    session = await openBrowser();
+    const details = await fetchFightDetails(session.reader, fighterUrl, limit);
+    try {
+      mkdirSync(CACHE_DIR, { recursive: true });
+      writeFileSync(
+        detailPath(name),
+        JSON.stringify({ fetched_at: Date.now(), details } satisfies DetailCacheEntry),
+      );
+    } catch {
+      // A slower run, not a failure.
+    }
+    return details;
+  } catch {
+    return [];
+  } finally {
+    await session?.close().catch(() => undefined);
+  }
 }

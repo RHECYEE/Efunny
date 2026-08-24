@@ -1086,3 +1086,13 @@ td + td {
 .phys b, .mktread b { font-size: 12px; color: var(--text); }
 .phys ul { margin: 6px 0 0; padding-left: 18px; color: var(--dim); font-size: 12px; line-height: 1.6; }
 .mktread .src { margin: 4px 0; }
+
+.deep-btn {
+  margin: 12px 0; padding: 8px 14px; font-size: 12px;
+  background: var(--panel); border: 1px solid var(--violet); color: #cbbcff; border-radius: 6px;
+}
+.deep { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 18px; margin: 12px 0; }
+.deep b { font-size: 13px; color: #fff; }
+.deep-row { display: flex; justify-content: space-between; font-size: 12px; padding: 3px 0; border-bottom: 1px solid var(--line); }
+.deep-row span:first-child { color: var(--muted); }
+.deep-row span:last-child { color: var(--text); font-variant-numeric: tabular-nums; }

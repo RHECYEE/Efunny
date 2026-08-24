@@ -103,6 +103,16 @@ async function main(): Promise<void> {
   console.log('');
   console.log(`  venues     ${adapters.map((a) => a.display_name).join(', ')}`);
   console.log(`  quote log  ${config.database_path}`);
+  // A missing capture folder is the difference between cross-venue work and
+  // one venue talking to itself, so it is stated either way rather than left
+  // to be inferred from a short venue list.
+  console.log(
+    `  captures   ${
+      existsSync(config.manual_imports_directory)
+        ? config.manual_imports_directory
+        : `none — no folder at ${config.manual_imports_directory}, so ${config.manual_display_name} is not a venue`
+    }`,
+  );
   console.log(`  interface  ${webAssets.describe}`);
 
   if (config.disable_poller) {
