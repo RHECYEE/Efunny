@@ -279,3 +279,74 @@ export function trenchRead(
     line_injuries: lineInjuries,
   };
 }
+
+/* ------------------------------------------------------------------ *
+ * Record depth
+ * ------------------------------------------------------------------ */
+
+export interface RecordDepth {
+  team: string;
+  last_5: string;
+  last_10: string;
+  /** Against opponents who finished above .500 in this sample. */
+  vs_winning: string;
+  vs_losing: string;
+  /** Average margin of the opponents faced, in their other games. */
+  strength_of_schedule: number | null;
+  notes: string[];
+}
+
+function tally(results: Result[]): string {
+  const w = results.filter((r) => r.points_for > r.points_against).length;
+  const l = results.filter((r) => r.points_for < r.points_against).length;
+  const t = results.length - w - l;
+  return t > 0 ? `${w}-${l}-${t}` : `${w}-${l}`;
+}
+
+/**
+ * The splits that say who a record was built against.
+ *
+ * A 9-8 team that went 1-6 against winning opposition and a 9-8 team that
+ * went 5-2 are the same line in a standings table and different teams. The
+ * classification uses each opponent's record *in this sample*, which is
+ * circular in the way every such split is — a team's own results are part of
+ * what makes its opponents look good or bad — and is reported anyway because
+ * the alternative is not reporting it.
+ */
+export function recordDepth(
+  team: string,
+  results: Result[],
+  winPctByTeam: Map<string, number>,
+  marginsByTeam: Map<string, number>,
+): RecordDepth {
+  const winning = results.filter((r) => (winPctByTeam.get(r.opponent) ?? 0.5) > 0.5);
+  const losing = results.filter((r) => (winPctByTeam.get(r.opponent) ?? 0.5) <= 0.5);
+  const sos = strengthOfSchedule(results, marginsByTeam);
+
+  const notes: string[] = [];
+  if (winning.length >= 4) {
+    const wins = winning.filter((r) => r.points_for > r.points_against).length;
+    notes.push(
+      `${tally(winning)} against teams above .500 in this sample` +
+        (wins / winning.length < 0.35
+          ? ' — the record is built on the easier half of the schedule.'
+          : '.'),
+    );
+  }
+  if (sos !== null && Math.abs(sos) >= 2) {
+    notes.push(
+      `Opponents averaged ${sos > 0 ? '+' : ''}${sos} points of margin elsewhere, so this ` +
+        `schedule was ${sos > 0 ? 'harder' : 'easier'} than neutral.`,
+    );
+  }
+
+  return {
+    team,
+    last_5: tally(results.slice(0, 5)),
+    last_10: tally(results.slice(0, 10)),
+    vs_winning: tally(winning),
+    vs_losing: tally(losing),
+    strength_of_schedule: sos,
+    notes,
+  };
+}

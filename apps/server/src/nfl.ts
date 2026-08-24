@@ -7,9 +7,11 @@ import {
   fetchRecordSplits,
   fetchResults,
   fetchScoreboard,
+  fetchStandings,
   fetchTeamStats,
   stat,
   type NewsItem,
+  type TeamStanding,
   type RecordSplits,
   type GameResult,
   type NflInjury,
@@ -23,13 +25,21 @@ import {
   project,
   snapshotOf,
   commonOpponents,
+  efficiency,
   headToHead,
+  recordDepth,
+  situational,
+  specialTeams,
   trenchRead,
   turnoverRead,
   type Change,
   type CommonOpponentRead,
   type HeadToHead,
+  type Efficiency,
   type MarketComparison,
+  type RecordDepth,
+  type Situational,
+  type SpecialTeams,
   type TrenchRead,
   type TurnoverRead,
   type Conditions,
@@ -66,6 +76,10 @@ const LIVE_TTL_MS = 10 * 60 * 1000;
 export interface TeamContext {
   team: string;
   record: RecordSplits;
+  depth: RecordDepth;
+  special_teams: SpecialTeams;
+  situational: Situational;
+  efficiency: Efficiency;
   /** Last five margins, newest first. */
   recent: number[];
   /** Season-long average margin, for comparison against the recent run. */
@@ -115,6 +129,8 @@ interface TeamBundle {
   news: NewsItem[];
   fumbles_forced: number | null;
   fumbles_recovered: number | null;
+  /** Raw statistics, kept so the unit reads can be built without refetching. */
+  raw: (name: string) => number | null;
 }
 
 export class NflService {
@@ -125,6 +141,8 @@ export class NflService {
   private snapshots = new Map<string, MatchupSnapshot>();
   private gameMarkets: Array<{ ticker: string; team: string; ask: number }> = [];
   private gameMarketsAt = 0;
+  private standings = new Map<string, TeamStanding>();
+  private standingsAt = 0;
   private statsSeason = 0;
   private priorSeason = false;
 
@@ -196,6 +214,7 @@ export class NflService {
         // Own fumbles and own fumbles lost — the pair that forms a real rate.
         fumbles_forced: stat(raw, 'fumbles'),
         fumbles_recovered: stat(raw, 'fumblesLost'),
+        raw: () => null,
         stats: {
           team: abbr,
           games,
@@ -223,12 +242,33 @@ export class NflService {
         },
       };
       void yardsPerGame;
+      bundle.raw = (name: string) => stat(raw, name);
       this.teams.set(abbr, bundle);
       this.teamsAt = Date.now();
       return bundle;
     } catch {
       return null;
     }
+  }
+
+  /**
+   * Every team's record for the season being read.
+   *
+   * One request, cached alongside the team statistics. Without it, "record
+   * against winning teams" classifies almost every opponent as .500 by
+   * default and reports a genuinely brutal schedule as neutral.
+   */
+  private async ensureStandings(season: number): Promise<Map<string, TeamStanding>> {
+    if (Date.now() - this.standingsAt < STATS_TTL_MS && this.standings.size > 0) {
+      return this.standings;
+    }
+    try {
+      this.standings = await fetchStandings(season);
+      this.standingsAt = Date.now();
+    } catch {
+      // An empty map means the splits report as unknown rather than as even.
+    }
+    return this.standings;
   }
 
   private async ensureInjuries(): Promise<NflInjury[]> {
@@ -313,10 +353,11 @@ export class NflService {
     this.statsSeason = season;
     this.priorSeason = prior;
 
-    const [home, away, injuryFeed] = await Promise.all([
+    const [home, away, injuryFeed, standings] = await Promise.all([
       this.ensureTeam(homeAbbr, season),
       this.ensureTeam(awayAbbr, season),
       this.ensureInjuries(),
+      this.ensureStandings(season),
     ]);
     if (!home || !away) return null;
 
@@ -381,9 +422,33 @@ export class NflService {
     const changes = previous ? diffSnapshots(previous, current) : [];
     this.snapshots.set(game.id, current);
 
+    // League-wide, from the standings rather than from the two teams loaded.
+    const winPct = new Map<string, number>();
+    const margins = new Map<string, number>();
+    for (const [abbr, standing] of standings) {
+      winPct.set(abbr, standing.win_pct);
+      if (standing.games > 0) margins.set(abbr, standing.point_differential / standing.games);
+    }
+
+    const specialistPositions = /^(K|P|LS|PK)$/i;
     const contextFor = (bundle: TeamBundle): TeamContext => ({
       team: bundle.stats.team,
       record: bundle.record,
+      depth: recordDepth(bundle.stats.team, bundle.results, winPct, margins),
+      special_teams: specialTeams(
+        bundle.stats.team,
+        bundle.raw,
+        injuries
+          .filter((i) => i.team === bundle.stats.team && specialistPositions.test(i.position))
+          .map((i) => `${i.position} ${i.player} (${i.status})`),
+      ),
+      situational: situational(bundle.stats.team, bundle.raw, bundle.results.length),
+      efficiency: efficiency(
+        bundle.stats.team,
+        bundle.raw,
+        bundle.results.length,
+        bundle.stats.points_against_per_game,
+      ),
       recent: bundle.stats.recent_margins,
       season_margin:
         bundle.results.length > 0

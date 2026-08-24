@@ -387,3 +387,76 @@ export async function fetchNews(
       type: a.type ?? '',
     }));
 }
+
+/* ------------------------------------------------------------------ *
+ * Standings
+ * ------------------------------------------------------------------ */
+
+export interface TeamStanding {
+  team: string;
+  wins: number;
+  losses: number;
+  win_pct: number;
+  /** Season point differential, which stands in for team strength. */
+  point_differential: number;
+  games: number;
+}
+
+/**
+ * Every team's record, in one request.
+ *
+ * Needed because "record against winning teams" and strength of schedule are
+ * questions about the whole league, and answering them from the two teams
+ * already loaded classifies almost every opponent as .500 by default — which
+ * quietly turned a genuinely hard schedule into a neutral one and reported
+ * 14-3 against losing teams and 0-0 against winning ones.
+ */
+export async function fetchStandings(
+  season: number,
+  options: EspnOptions = {},
+): Promise<Map<string, TeamStanding>> {
+  const body = await getJson<unknown>(
+    `https://site.api.espn.com/apis/v2/sports/football/nfl/standings?season=${season}`,
+    options,
+  );
+
+  const out = new Map<string, TeamStanding>();
+
+  // The payload nests conferences and divisions differently by season, so the
+  // entries are found by shape rather than by a fixed path.
+  const walk = (node: unknown): void => {
+    if (Array.isArray(node)) {
+      for (const child of node) walk(child);
+      return;
+    }
+    if (!node || typeof node !== 'object') return;
+    const record = node as Record<string, unknown>;
+
+    const standings = record.standings as { entries?: unknown[] } | undefined;
+    for (const entry of standings?.entries ?? []) {
+      const e = entry as {
+        team?: { abbreviation?: string };
+        stats?: Array<{ name?: string; value?: number }>;
+      };
+      const abbr = e.team?.abbreviation;
+      if (!abbr) continue;
+      const stats = new Map((e.stats ?? []).map((s) => [s.name ?? '', s.value ?? 0]));
+      const wins = stats.get('wins') ?? 0;
+      const losses = stats.get('losses') ?? 0;
+      const games = wins + losses + (stats.get('ties') ?? 0);
+      out.set(abbr, {
+        team: abbr,
+        wins,
+        losses,
+        win_pct: stats.get('winPercent') ?? (games > 0 ? wins / games : 0.5),
+        point_differential: stats.get('pointDifferential') ?? 0,
+        games,
+      });
+    }
+
+    for (const value of Object.values(record)) walk(value);
+  };
+
+  walk(body);
+  return out;
+}

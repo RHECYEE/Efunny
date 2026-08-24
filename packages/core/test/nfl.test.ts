@@ -2,6 +2,12 @@ import { describe, expect, it } from 'vitest';
 import {
   commonOpponents,
   compareToMarket,
+  efficiency,
+  guardZeros,
+  recordDepth,
+  situational,
+  specialTeams,
+  type StatLookup,
   diffSnapshots,
   headToHead,
   trenchRead,
@@ -233,5 +239,70 @@ describe('market comparison', () => {
   it('says so plainly when model and market agree', () => {
     const c = compareToMarket(0.5, { venue: 'v', home_price: 500, away_price: 500 });
     expect(c.model_leans).toBe('ALIGNED');
+  });
+});
+
+describe('units', () => {
+  const lookup = (data: Record<string, number>): StatLookup => (n) => (n in data ? data[n]! : null);
+
+  it('treats an impossible zero as missing, not as a number', () => {
+    // A team does not run zero drives or allow zero points across a season.
+    // ESPN carries these fields and leaves them at zero, which turned yards
+    // per drive into a division by nothing.
+    const g = guardZeros(lookup({ totalDrives: 0, pointsAllowed: 0, thirdDownConvs: 0 }));
+    expect(g('totalDrives')).toBeNull();
+    expect(g('pointsAllowed')).toBeNull();
+    // A genuine zero on a stat that can be zero stays zero.
+    expect(g('thirdDownConvs')).toBe(0);
+  });
+
+  it('reads a kicker by distance rather than in aggregate', () => {
+    // 85% of chip shots and 85% including a dozen fifty-yarders are
+    // different kickers, and only one of them changes what a stalled drive
+    // near midfield is worth.
+    const st = specialTeams('X', lookup({
+      fieldGoalsMade20_29: 6, fieldGoalAttempts20_29: 6,
+      fieldGoalsMade50: 9, fieldGoalAttempts50: 14,
+    }), []);
+    expect(st.field_goals.find((b) => b.label === '50+')!.pct).toBeCloseTo(0.643, 2);
+    expect(st.notes.join(' ')).toContain('Shaky from 50+');
+  });
+
+  it('falls back to a derived points-allowed when the feed is silent', () => {
+    const e = efficiency('X', lookup({ pointsAllowed: 0, totalPointsPerGame: 24 }), 17, 28.1);
+    expect(e.points_allowed_per_game).toBe(28.1);
+    expect(e.points_allowed_is_derived).toBe(true);
+    expect(e.notes.join(' ')).toContain('per-possession rates are absent');
+  });
+
+  it('separates settling for three from finishing drives', () => {
+    const good = situational('X', lookup({ redzoneTouchdownPct: 65, redzoneFieldGoalPct: 25 }), 17);
+    const bad = situational('Y', lookup({ redzoneTouchdownPct: 45, redzoneFieldGoalPct: 40 }), 17);
+    expect(good.notes.join(' ')).toContain('Finishes drives');
+    expect(bad.notes.join(' ')).toContain('Settles for three');
+  });
+});
+
+describe('record depth', () => {
+  const r = (opponent: string, pf: number, pa: number) => ({
+    date: '2025-10-01', opponent, home: true, points_for: pf, points_against: pa,
+  });
+
+  it('splits a record by the quality of who it was built against', () => {
+    // Two 9-8 teams are the same standings line and different teams.
+    const results = [r('GOOD', 10, 30), r('GOOD2', 14, 20), r('BAD', 30, 3), r('BAD2', 24, 10)];
+    const winPct = new Map([['GOOD', 0.8], ['GOOD2', 0.7], ['BAD', 0.2], ['BAD2', 0.3]]);
+    const margins = new Map([['GOOD', 8], ['GOOD2', 6], ['BAD', -9], ['BAD2', -7]]);
+    const d = recordDepth('X', results, winPct, margins);
+    expect(d.vs_winning).toBe('0-2');
+    expect(d.vs_losing).toBe('2-0');
+    expect(d.strength_of_schedule).toBeCloseTo(-0.5, 1);
+  });
+
+  it('counts the last five and ten separately', () => {
+    const results = Array.from({ length: 12 }, (_, i) => r(`T${i}`, i < 5 ? 30 : 3, 10));
+    const d = recordDepth('X', results, new Map(), new Map());
+    expect(d.last_5).toBe('5-0');
+    expect(d.last_10).toBe('5-5');
   });
 });

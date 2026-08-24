@@ -32,6 +32,7 @@ export * from './nfl/projection.js';
 export * from './nfl/diff.js';
 export * from './nfl/context.js';
 export * from './nfl/market.js';
+export * from './nfl/units.js';
 export * from './scanner/series.js';
 export * from './scanner/metrics.js';
 export * from './scanner/trades.js';

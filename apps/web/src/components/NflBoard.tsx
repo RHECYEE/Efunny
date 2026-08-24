@@ -61,9 +61,56 @@ interface Projection {
   not_modelled: string[];
 }
 
+interface RecordDepth {
+  last_5: string;
+  last_10: string;
+  vs_winning: string;
+  vs_losing: string;
+  strength_of_schedule: number | null;
+  notes: string[];
+}
+
+interface SpecialTeams {
+  field_goals: Array<{ label: string; made: number; attempted: number; pct: number | null }>;
+  net_punt_avg: number | null;
+  punts_inside_20_pct: number | null;
+  yards_per_kick_return: number | null;
+  yards_per_punt_return: number | null;
+  return_touchdowns: number;
+  injuries: string[];
+  notes: string[];
+}
+
+interface Situational {
+  third_down_pct: number | null;
+  fourth_down_pct: number | null;
+  fourth_down_attempts: number | null;
+  red_zone_td_pct: number | null;
+  red_zone_fg_pct: number | null;
+  possession_minutes: number | null;
+  penalties_per_game: number | null;
+  notes: string[];
+}
+
+interface Efficiency {
+  yards_per_game: number | null;
+  points_per_game: number | null;
+  points_allowed_per_game: number | null;
+  points_allowed_is_derived: boolean;
+  long_pass: number | null;
+  long_rush: number | null;
+  sacks: number | null;
+  stuffs: number | null;
+  notes: string[];
+}
+
 interface TeamContext {
   team: string;
   record: { overall: string | null; home: string | null; road: string | null; division: string | null; conference: string | null };
+  depth: RecordDepth;
+  special_teams: SpecialTeams;
+  situational: Situational;
+  efficiency: Efficiency;
   recent: number[];
   season_margin: number | null;
   news: Array<{ headline: string; description: string; published: string }>;
@@ -330,7 +377,10 @@ function MatchupView({ m }: { m: Matchup }) {
         <h4>Records</h4>
         <table className="splits num">
           <thead>
-            <tr><th /><th>Overall</th><th>Home</th><th>Road</th><th>Div</th><th>Conf</th></tr>
+            <tr>
+              <th /><th>Overall</th><th>Home</th><th>Road</th><th>Div</th><th>Conf</th>
+              <th>Last 5</th><th>Last 10</th><th>vs &gt;.500</th><th>SOS</th>
+            </tr>
           </thead>
           <tbody>
             {[m.home_context, m.away_context].map((c) => (
@@ -341,10 +391,25 @@ function MatchupView({ m }: { m: Matchup }) {
                 <td>{c.record.road ?? '—'}</td>
                 <td>{c.record.division ?? '—'}</td>
                 <td>{c.record.conference ?? '—'}</td>
+                <td>{c.depth.last_5}</td>
+                <td>{c.depth.last_10}</td>
+                <td>{c.depth.vs_winning}</td>
+                <td>
+                  {c.depth.strength_of_schedule === null
+                    ? '—'
+                    : `${c.depth.strength_of_schedule > 0 ? '+' : ''}${c.depth.strength_of_schedule}`}
+                </td>
               </tr>
             ))}
           </tbody>
         </table>
+        {[m.home_context, m.away_context].map((c) =>
+          c.depth.notes.length > 0 ? (
+            <p className="src" key={c.team}>
+              <b className="tm">{c.team}</b> {c.depth.notes.join(' ')}
+            </p>
+          ) : null,
+        )}
       </section>
 
       <section>
@@ -373,6 +438,71 @@ function MatchupView({ m }: { m: Matchup }) {
             </div>
           );
         })}
+      </section>
+
+      <section>
+        <h4>Efficiency</h4>
+        {[m.home_context, m.away_context].map((c) => (
+          <div className="turnover" key={c.team}>
+            <span className="tm">{c.team}</span>
+            <span className="fd">
+              {c.efficiency.points_per_game !== null && `${c.efficiency.points_per_game.toFixed(1)} scored`}
+              {c.efficiency.points_allowed_per_game !== null &&
+                ` / ${c.efficiency.points_allowed_per_game.toFixed(1)} allowed${c.efficiency.points_allowed_is_derived ? ' (from results)' : ''}`}
+              {c.efficiency.yards_per_game !== null && ` · ${c.efficiency.yards_per_game.toFixed(0)} yds/g`}
+              {c.efficiency.long_pass !== null && ` · long pass ${c.efficiency.long_pass}`}
+              {c.efficiency.stuffs !== null && ` · ${c.efficiency.stuffs} stuffs`}
+              {c.efficiency.notes.length > 0 && ` — ${c.efficiency.notes.join(' ')}`}
+            </span>
+          </div>
+        ))}
+      </section>
+
+      <section>
+        <h4>Situational</h4>
+        {[m.home_context, m.away_context].map((c) => (
+          <div className="turnover" key={c.team}>
+            <span className="tm">{c.team}</span>
+            <span className="fd">
+              {c.situational.third_down_pct !== null && `3rd ${Math.round(c.situational.third_down_pct * 100)}%`}
+              {c.situational.fourth_down_pct !== null &&
+                ` · 4th ${Math.round(c.situational.fourth_down_pct * 100)}% on ${c.situational.fourth_down_attempts} tries`}
+              {c.situational.red_zone_td_pct !== null && ` · red zone ${Math.round(c.situational.red_zone_td_pct * 100)}% TD`}
+              {c.situational.possession_minutes !== null && ` · ${c.situational.possession_minutes.toFixed(1)} min possession`}
+              {c.situational.penalties_per_game !== null && ` · ${c.situational.penalties_per_game.toFixed(1)} penalties`}
+              {c.situational.notes.length > 0 && (
+                <>
+                  <br />
+                  {c.situational.notes.join(' ')}
+                </>
+              )}
+            </span>
+          </div>
+        ))}
+      </section>
+
+      <section>
+        <h4>Special teams</h4>
+        {[m.home_context, m.away_context].map((c) => (
+          <div className="turnover" key={c.team}>
+            <span className="tm">{c.team}</span>
+            <span className="fd">
+              FG{' '}
+              {c.special_teams.field_goals
+                .filter((b) => b.attempted > 0)
+                .map((b) => `${b.label}: ${b.made}/${b.attempted}`)
+                .join(' · ')}
+              {c.special_teams.net_punt_avg !== null && ` · net punt ${c.special_teams.net_punt_avg.toFixed(1)}`}
+              {c.special_teams.return_touchdowns > 0 && ` · ${c.special_teams.return_touchdowns} return TD`}
+              {c.special_teams.notes.length > 0 && (
+                <>
+                  <br />
+                  {c.special_teams.notes.join(' ')}
+                </>
+              )}
+            </span>
+          </div>
+        ))}
       </section>
 
       <section>
